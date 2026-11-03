@@ -67,3 +67,6 @@ ysp-engine.js
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Release ËµÃ÷²Ý¸å
+.github/RELEASE-BODY.md
