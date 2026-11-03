@@ -379,6 +379,14 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
     }
 
     private void openPlayer(ChannelSpec spec) {
+        // 防重入：触屏点击可能经由 GridView.onItemClick 与条目自身 click 两条路径进来，
+        // D-pad 的 OK 也可能在同一帧内重复上报，这里统一做一次去抖。
+        long now = System.currentTimeMillis();
+        if (now - lastOpenAt < 600L) {
+            return;
+        }
+        lastOpenAt = now;
+
         AppPrefs.get(this).setLastChannelSlug(spec.slug);
         lastWatchedSlug = spec.slug;
         Intent intent = PlayerActivity.intentFor(this, spec.slug, currentFilter);
@@ -386,9 +394,12 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
             startActivity(intent);
         } catch (RuntimeException e) {
             Log.e(TAG, "打开播放页失败：" + e);
-            Ui.toast(this, "无法打开播放页");
+            Ui.toast(this, "无法打开播放页：" + e.getClass().getSimpleName());
         }
     }
+
+    /** 上次打开播放页的时间，用于点击去抖。 */
+    private long lastOpenAt;
 
     // ---------------- 焦点 ----------------
 

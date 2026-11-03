@@ -6,7 +6,6 @@
     android:background="@drawable/bg_row"
     android:clickable="true"
     android:focusable="true"
-    android:focusableInTouchMode="true"
     android:gravity="center_vertical"
     android:minHeight="54dp"
     android:orientation="horizontal"
@@ -14,6 +13,12 @@
     android:paddingTop="8dp"
     android:paddingRight="4dp"
     android:paddingBottom="8dp">
+    <!--
+      注意：不要加 android:focusableInTouchMode="true"。
+      该属性会让 View.onTouchEvent 在「首次点击」时只 requestFocus() 而不 performClick()，
+      结果是手机上第一次点击被吞掉、必须点两次才生效——电视上因焦点已在控件上而看不出问题。
+      本工程所有布局都必须遵守这条，否则触屏体验会退化成「只有电视能用」。
+    -->
 
     <LinearLayout
         android:layout_width="0dp"

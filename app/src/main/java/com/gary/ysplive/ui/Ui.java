@@ -50,7 +50,13 @@ final class Ui {
         }
     }
 
-    /** 造一个 filter chip。 */
+    /**
+     * 造一个 filter chip。
+     * <p><b>不要</b>调 {@code setFocusableInTouchMode(true)}：那会让 {@code View.onTouchEvent}
+     * 在首次点击时只 {@code requestFocus()} 而<b>不</b> {@code performClick()}，
+     * 手机上表现为「点一下没反应、要点两下」，电视上因为焦点已在控件上所以看不出问题。
+     * 这里只保留 {@code setFocusable(true)}——它在触屏模式下照样能点击，且能被 D-pad 聚焦。
+     */
     static TextView makeChip(Context ctx, String text, View.OnClickListener click) {
         TextView chip = new TextView(ctx);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -64,7 +70,6 @@ final class Ui {
         chip.setBackgroundResource(R.drawable.bg_chip);
         chip.setTextColor(ctx.getResources().getColorStateList(R.color.chip_text));
         chip.setFocusable(true);
-        chip.setFocusableInTouchMode(true);
         chip.setClickable(true);
         if (click != null) {
             chip.setOnClickListener(click);

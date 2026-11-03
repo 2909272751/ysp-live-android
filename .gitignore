@@ -70,3 +70,7 @@ desktop.ini
 
 # Release 说明草稿
 .github/RELEASE-BODY.md
+
+# 构建/检查临时输出
+lint.txt
+t[0-9]*.txt

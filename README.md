@@ -14,12 +14,28 @@
 
 | 文件 | 大小 | 说明 |
 |---|---|---|
-| [`dist/YspLive-v9.5.apk`](dist/YspLive-v9.5.apk) | 3.58 MB | **发布版**，正式签名，推荐 |
-| [`dist/YspLive-v9.5-debug.apk`](dist/YspLive-v9.5-debug.apk) | 4.66 MB | 调试版，带完整日志，排障用 |
+| [`dist/YspLive-v9.5.1.apk`](dist/YspLive-v9.5.1.apk) | 3.58 MB | **发布版，推荐** |
+| [`dist/YspLive-v9.5.1-debug.apk`](dist/YspLive-v9.5.1-debug.apk) | 4.56 MB | 调试版，带完整日志，排障用 |
 
-- 包名 `com.gary.ysplive`，versionCode `905`，versionName `9.5.0`
+- 包名 `com.gary.ysplive`，versionCode `906`，versionName `9.5.1`
 - `minSdk 21`（Android 5.0+），`targetSdk 34`
 - **同一个 APK 同时支持手机和 Android TV**（同时注册 `LAUNCHER` 与 `LEANBACK_LAUNCHER`）
+
+### v9.5.1 修复了什么
+
+**v9.5.0 在手机上点不动**（点频道不进播放器、顶部筛选 tag 切换无反应），电视上却正常。
+两个都是触屏/焦点语义的 bug：
+
+1. `item_channel.xml` 的根布局带了 `android:clickable="true"`。
+   子视图可点击时，`GridView.onItemClick` **永远不会触发**（父列表认为触摸已被子视图消费），
+   而条目自身又没有绑点击监听 → 点频道完全无反应。
+2. `Ui.makeChip()` 与若干 item 布局用了 `focusableInTouchMode="true"`。
+   `View.onTouchEvent` 在这种情况下首次点击只 `requestFocus()`、**不** `performClick()`，
+   所以筛选 tag 必须点两下才生效。
+
+电视上因为焦点始终在控件上，这两个问题都被掩盖了——这就是「只有电视能用」的原因。
+v9.5.1 已全部移除并加了注释防止回退，同时给 `openPlayer` 加了点击去抖防止重复打开。
+
 
 ---
 
@@ -164,7 +180,7 @@ $env:GRADLE_USER_HOME='<缓存目录>'
 & .\tools\gradle-8.9\bin\gradle.bat --project-dir . :app:assembleRelease
 ```
 
-产物：`app/build/outputs/apk/release/YspLive-v9.5.apk`
+产物：`app/build/outputs/apk/release/YspLive-v9.5.1.apk`
 
 仓库不含 Gradle 发行版（144 MB），从 <https://gradle.org/releases/> 下载 8.9 解压到 `tools/gradle-8.9/` 即可。
 `tools/gradlew.ps1` 可用一行封装上述环境变量。
