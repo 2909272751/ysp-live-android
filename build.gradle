@@ -1,0 +1,12 @@
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}
+
+allprojects {
+    group = 'com.gary.ysplive'
+    version = '9.5.0'
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}

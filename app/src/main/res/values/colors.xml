@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色 TV 友好配色 -->
+    <color name="bg_root">#FF0C0F14</color>
+    <color name="bg_card">#FF161B23</color>
+    <color name="bg_card_focus">#FF3A1420</color>
+    <color name="bg_chip">#FF1E242E</color>
+    <color name="bg_chip_focus">#FFE62F3C</color>
+    <color name="bg_overlay">#B3000000</color>
+
+    <color name="brand_red">#FFE62F3C</color>
+    <color name="brand_red_dark">#FFB01624</color>
+    <color name="accent">#FF4FA8FF</color>
+
+    <color name="text_primary">#FFF2F4F8</color>
+    <color name="text_secondary">#FF9AA6B5</color>
+    <color name="text_hint">#FF6B7785</color>
+    <color name="text_on_brand">#FFFFFFFF</color>
+
+    <color name="divider">#FF232A35</color>
+    <color name="focus_stroke">#FFFF5A66</color>
+    <color name="badge_bg">#CC000000</color>
+    <color name="placeholder">#FF2A3340</color>
+    <color name="success">#FF3DD68C</color>
+    <color name="warning">#FFFFB020</color>
+    <color name="error">#FFFF5A66</color>
+</resources>

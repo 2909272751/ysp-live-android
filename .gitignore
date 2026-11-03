@@ -1,0 +1,69 @@
+# --- 构建与 IDE ---
+build/
+.gradle/
+.gradle-home/
+local.properties
+*.iml
+.idea/
+.gradle-cache/
+
+# --- 工具链（体积大、由脚本下载）---
+tools/gradle-8.9/
+tools/gradle-home/
+tools/gradle-dist.zip
+tools/scratch-device/
+tools/__pycache__/
+__pycache__/
+*.pyc
+
+# --- 临时文件与抓包产物 ---
+_dexchk/
+_probe/
+_hello/
+/data/
+*.log
+ysp.err
+health.json
+all.m3u
+*.m3u8
+!core/src/test/resources/*.m3u
+h*.txt
+v[0-9].txt
+t[0-9].txt
+testrun*.txt
+testerr.txt
+build_final.txt
+fb4k*.txt
+bkprobe*.txt
+bkseg*.txt
+diag_now.txt
+py4.m3u8
+r4.m3u8
+ref*.m3u8
+cctv*.m3u8
+bjws.m3u8
+harness*.log
+tools/Packages.txt
+tools/*-log.txt
+tools/probe-log.txt
+tools/echo-*.txt
+tools/final*.txt
+tools/patch_notes.py
+
+# --- 参考实现（原作者作品，不随本仓库再分发）---
+ysp-live-v9.5.py
+ysp-service_2.0.13.js
+ysp-engine.js
+
+# --- 签名材料：绝不提交私钥 ---
+# 仓库里不提供 keystore。app/build.gradle 会在 app/ysp-release.jks 缺失时
+# 自动回退到 tools/debug.keystore，因此克隆后可直接 assembleRelease。
+# 要正式发布请自行生成（见 README「构建」一节）。
+*.jks
+*.keystore
+!tools/debug.keystore
+
+# --- 系统 ---
+Thumbs.db
+desktop.ini
+.DS_Store

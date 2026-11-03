@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_root"
+    android:orientation="vertical"
+    android:paddingLeft="@dimen/screen_pad"
+    android:paddingTop="14dp"
+    android:paddingRight="@dimen/screen_pad"
+    android:paddingBottom="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            style="@style/Text.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/logs_title" />
+
+        <TextView
+            android:id="@+id/log_count"
+            style="@style/Text.Secondary"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="12dp"
+            android:text="" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/btn_copy"
+            style="@style/ActionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/copy_all" />
+
+        <TextView
+            android:id="@+id/btn_clear"
+            style="@style/ActionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:text="@string/clear" />
+
+        <TextView
+            android:id="@+id/btn_close"
+            style="@style/ActionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="8dp"
+            android:text="@string/back" />
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/log_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="10dp"
+        android:layout_weight="1"
+        android:background="@drawable/bg_panel"
+        android:divider="@color/divider"
+        android:dividerHeight="1dp"
+        android:paddingLeft="12dp"
+        android:paddingTop="6dp"
+        android:paddingRight="12dp"
+        android:paddingBottom="6dp"
+        android:scrollbarStyle="outsideOverlay"
+        android:stackFromBottom="false"
+        android:transcriptMode="normal" />
+
+    <TextView
+        android:id="@+id/log_empty"
+        style="@style/Text.Secondary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:gravity="center"
+        android:text="暂无日志"
+        android:visibility="gone" />
+</LinearLayout>

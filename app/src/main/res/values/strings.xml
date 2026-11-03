@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">央视频直播</string>
+    <string name="settings_title">设置</string>
+    <string name="logs_title">运行日志</string>
+    <string name="diagnostics_title">引擎诊断</string>
+
+    <!-- 主界面 -->
+    <string name="filter_all">全部</string>
+    <string name="filter_cctv">央视</string>
+    <string name="filter_ws">卫视</string>
+    <string name="filter_4k">4K</string>
+    <string name="filter_fav">收藏</string>
+    <string name="continue_watching">继续观看</string>
+    <string name="menu_settings">设置</string>
+    <string name="menu_logs">日志</string>
+    <string name="menu_diagnostics">诊断</string>
+    <string name="menu_refresh">刷新频道</string>
+
+    <!-- 引擎状态 -->
+    <string name="engine_starting">正在启动…</string>
+    <string name="engine_ready">高码率已就绪</string>
+    <string name="engine_ready_1080p">1080p 模式</string>
+    <string name="engine_stopped">引擎未运行</string>
+
+    <!-- 播放页 -->
+    <string name="play">播放</string>
+    <string name="pause">暂停</string>
+    <string name="prev_channel">上一频道</string>
+    <string name="next_channel">下一频道</string>
+    <string name="timeshift">回看</string>
+    <string name="favorite">收藏</string>
+    <string name="unfavorite">取消收藏</string>
+    <string name="retry">重试</string>
+    <string name="back">返回</string>
+    <string name="channel_list">频道</string>
+
+    <!-- 设置 -->
+    <string name="set_port">引擎端口</string>
+    <string name="set_lan">允许局域网访问</string>
+    <string name="set_cache">分片缓存（MB）</string>
+    <string name="set_links">单设备并发路数</string>
+    <string name="set_zap">换台防抖（秒）</string>
+    <string name="set_high_bitrate">高码率模式</string>
+    <string name="set_boot">开机自启</string>
+    <string name="set_favorites">收藏管理</string>
+    <string name="set_clear_favorites">清空收藏</string>
+    <string name="set_clear_logs">清空日志</string>
+    <string name="set_local_ip">本机地址</string>
+    <string name="restart_engine">重启引擎</string>
+    <string name="save">保存</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确定</string>
+    <string name="copy_all">复制全部</string>
+    <string name="clear">清空</string>
+
+    <!-- 提示 -->
+    <string name="tip_saved">已保存</string>
+    <string name="tip_copied">已复制到剪贴板</string>
+    <string name="tip_restart_needed">该设置需要重启引擎后生效，是否立即重启？</string>
+    <string name="tip_engine_offline">引擎尚未就绪，请稍候</string>
+    <string name="tip_no_favorites">还没有收藏，长按频道可收藏</string>
+    <string name="tip_retry_failed">播放失败，已重试 3 次</string>
+</resources>

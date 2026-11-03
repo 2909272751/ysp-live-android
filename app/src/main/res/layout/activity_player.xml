@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/player_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <!-- 控制条、use_controller 等在代码里设置，避免依赖 library 自定义属性 -->
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/black" />
+
+    <!-- ================= 缓冲提示 ================= -->
+    <LinearLayout
+        android:id="@+id/buffering_box"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <ProgressBar
+            android:id="@+id/buffering_spinner"
+            style="?android:attr/progressBarStyle"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:indeterminate="true" />
+
+        <TextView
+            android:id="@+id/buffering_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="正在缓冲…"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <!-- ================= 错误卡片 ================= -->
+    <LinearLayout
+        android:id="@+id/error_card"
+        android:layout_width="360dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_panel"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="22dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="播放失败"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/error_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:lineSpacingExtra="3dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/error_retry"
+                style="@style/ActionButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_button_primary"
+                android:paddingLeft="22dp"
+                android:paddingRight="22dp"
+                android:text="@string/retry" />
+
+            <TextView
+                android:id="@+id/error_back"
+                style="@style/ActionButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="12dp"
+                android:text="@string/back" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ================= 控制层 ================= -->
+    <LinearLayout
+        android:id="@+id/overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg_overlay"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- 顶部：频道名 + 质量 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_overlay_top"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingLeft="24dp"
+            android:paddingTop="20dp"
+            android:paddingRight="24dp"
+            android:paddingBottom="26dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/overlay_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:textColor="@color/text_primary"
+                    android:textSize="21sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/overlay_meta"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/overlay_quality"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_badge"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:textColor="@color/accent"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <Space
+            android:layout_width="1dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- 底部：操作按钮 -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_overlay_bottom"
+            android:paddingLeft="20dp"
+            android:paddingTop="22dp"
+            android:paddingRight="20dp"
+            android:paddingBottom="22dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/overlay_buttons"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/btn_play_pause"
+                    style="@style/ActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_button_primary"
+                    android:paddingLeft="24dp"
+                    android:paddingRight="24dp"
+                    android:text="@string/pause" />
+
+                <TextView
+                    android:id="@+id/btn_prev"
+                    style="@style/ActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:paddingLeft="20dp"
+                    android:paddingRight="20dp"
+                    android:text="@string/prev_channel" />
+
+                <TextView
+                    android:id="@+id/btn_next"
+                    style="@style/ActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:paddingLeft="20dp"
+                    android:paddingRight="20dp"
+                    android:text="@string/next_channel" />
+
+                <TextView
+                    android:id="@+id/btn_fav"
+                    style="@style/ActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:text="@string/favorite" />
+
+                <TextView
+                    android:id="@+id/btn_timeshift"
+                    style="@style/ActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:text="@string/timeshift" />
+
+                <TextView
+                    android:id="@+id/btn_channel_list"
+                    style="@style/ActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:text="@string/channel_list" />
+
+                <TextView
+                    android:id="@+id/btn_diag"
+                    style="@style/ActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:text="@string/menu_diagnostics" />
+
+                <TextView
+                    android:id="@+id/btn_back"
+                    style="@style/ActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:text="@string/back" />
+            </LinearLayout>
+        </HorizontalScrollView>
+    </LinearLayout>
+
+    <!-- 首次提示：TV 上告诉用户按 OK 唤出控制条 -->
+    <TextView
+        android:id="@+id/hint_key"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|right"
+        android:layout_marginRight="18dp"
+        android:layout_marginBottom="14dp"
+        android:alpha="0.6"
+        android:background="@drawable/bg_badge"
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:text="按 OK 呼出控制条"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+</FrameLayout>
