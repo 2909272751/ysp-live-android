@@ -1,11 +1,15 @@
 plugins {
     id 'com.android.application' version '8.5.2' apply false
+    id 'com.android.library' version '8.5.2' apply false
 }
 
 allprojects {
     group = 'com.gary.ysplive'
-    version = '9.5.0'
+    version = '9.5.3'
 }
+
+// :windows 是纯 Java 桌面模块，不参与 Android 构建。
+// 这样 Android 侧 assembleXxx 不会去碰 JavaFX 依赖。
 
 tasks.register('clean', Delete) {
     delete rootProject.layout.buildDirectory

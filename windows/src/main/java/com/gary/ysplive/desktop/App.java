@@ -1,0 +1,490 @@
+package com.gary.ysplive.desktop;
+
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.Tooltip;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.FlowPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
+
+import com.gary.ysplive.core.data.ChannelSpec;
+import com.gary.ysplive.core.data.ChannelTable;
+import com.gary.ysplive.core.spi.Gateway;
+import com.gary.ysplive.core.spi.Log;
+
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Windows 桌面版主界面。
+ *
+ * <p>布局：顶部标题 + 引擎状态 + 工具按钮；中间筛选 chip；主体频道网格。
+ * 双击频道（或点「播放」）打开独立播放窗口。
+ */
+public final class App extends Application {
+
+    private static final String TAG = "app";
+    private static final String[] FILTERS = {"全部", "央视", "卫视", "4K", "收藏"};
+
+    private Stage stage;
+    private DesktopConfig config;
+    private EngineController engine;
+    private LocalWebServer webServer;
+
+    private FlowPane channelGrid;
+    private Label statusLabel;
+    private Label detailLabel;
+    private Button continueButton;
+    private final ToggleGroup filterGroup = new ToggleGroup();
+    private final Map<String, Image> logoCache = new HashMap<>();
+
+    private PlayerLauncher.Session playerSession;
+    private String chromiumPath;
+
+    @Override
+    public void start(Stage primaryStage) {
+        this.stage = primaryStage;
+        this.config = DesktopConfig.load();
+        this.engine = new EngineController(config);
+
+        BorderPane root = new BorderPane();
+        root.setTop(buildHeader());
+        root.setCenter(buildBody());
+        root.getStyleClass().add("root-pane");
+
+        Scene scene = new Scene(root, config.windowWidth, config.windowHeight);
+        try {
+            java.net.URL css = App.class.getResource("/ui/app.css");
+            if (css != null) {
+                scene.getStylesheets().add(css.toExternalForm());
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "加载样式失败：" + e);
+        }
+
+        primaryStage.setTitle("央视频全频道直播 · Windows 版");
+        primaryStage.setScene(scene);
+        primaryStage.setMinWidth(880);
+        primaryStage.setMinHeight(600);
+        primaryStage.setOnCloseRequest(e -> shutdown());
+
+        // 记住窗口尺寸
+        primaryStage.widthProperty().addListener((o, a, b) -> {
+            if (b != null && b.doubleValue() > 200) {
+                config.windowWidth = b.intValue();
+            }
+        });
+        primaryStage.heightProperty().addListener((o, a, b) -> {
+            if (b != null && b.doubleValue() > 200) {
+                config.windowHeight = b.intValue();
+            }
+        });
+
+        primaryStage.show();
+
+        chromiumPath = PlayerLauncher.findChromium();
+        if (chromiumPath == null) {
+            Log.w(TAG, "未检测到 Edge/Chrome，播放功能不可用");
+        }
+
+        loadChannelGrid();
+        startEngineAndPlayerHost();
+    }
+
+    // ------------------------------------------------------------------ 顶部
+
+    private Region buildHeader() {
+        Label title = new Label("央视频直播");
+        title.getStyleClass().add("title");
+
+        Label subtitle = new Label("Windows");
+        subtitle.getStyleClass().add("subtitle");
+
+        statusLabel = new Label("引擎未启动");
+        statusLabel.getStyleClass().add("status-text");
+
+        detailLabel = new Label("");
+        detailLabel.getStyleClass().add("status-detail");
+
+        VBox statusBox = new VBox(2, statusLabel, detailLabel);
+        statusBox.setAlignment(Pos.CENTER_LEFT);
+
+        Button diagBtn = new Button("诊断");
+        diagBtn.setOnAction(e -> showDiagnostics());
+        Button settingsBtn = new Button("设置");
+        settingsBtn.setOnAction(e -> showSettings());
+        Button logsBtn = new Button("日志");
+        logsBtn.setOnAction(e -> showLogs());
+        Button refreshBtn = new Button("重载列表");
+        refreshBtn.setOnAction(e -> loadChannelGrid());
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox row = new HBox(10, title, subtitle, spacer, statusBox,
+                refreshBtn, logsBtn, settingsBtn, diagBtn);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(14, 18, 10, 18));
+        row.getStyleClass().add("header");
+
+        continueButton = new Button("继续观看");
+        continueButton.getStyleClass().add("primary");
+        continueButton.setVisible(false);
+        continueButton.setOnAction(e -> {
+            ChannelSpec spec = ChannelTable.bySlug(config.lastChannel);
+            if (spec != null) {
+                openPlayer(spec);
+            }
+        });
+
+        HBox chips = new HBox(8);
+        chips.setAlignment(Pos.CENTER_LEFT);
+        chips.setPadding(new Insets(0, 18, 10, 18));
+        for (String f : FILTERS) {
+            ToggleButton tb = new ToggleButton(f);
+            tb.setToggleGroup(filterGroup);
+            tb.getStyleClass().add("chip");
+            tb.setSelected(f.equals(config.filter));
+            tb.setOnAction(e -> {
+                // ToggleGroup 允许取消选中，这里强制至少选中一个
+                if (!tb.isSelected()) {
+                    tb.setSelected(true);
+                    return;
+                }
+                config.filter = f;
+                config.save();
+                loadChannelGrid();
+            });
+            chips.getChildren().add(tb);
+        }
+        Region chipSpacer = new Region();
+        HBox.setHgrow(chipSpacer, Priority.ALWAYS);
+        chips.getChildren().addAll(chipSpacer, continueButton);
+
+        VBox top = new VBox(row, chips);
+        top.getStyleClass().add("top");
+        return top;
+    }
+
+    // ------------------------------------------------------------------ 主体
+
+    private Region buildBody() {
+        channelGrid = new FlowPane();
+        channelGrid.setHgap(12);
+        channelGrid.setVgap(12);
+        channelGrid.setPadding(new Insets(14, 18, 18, 18));
+        channelGrid.getStyleClass().add("grid");
+
+        ScrollPane scroll = new ScrollPane(channelGrid);
+        scroll.setFitToWidth(true);
+        scroll.getStyleClass().add("grid-scroll");
+        return scroll;
+    }
+
+    private void loadChannelGrid() {
+        List<ChannelSpec> list = config.filteredChannels();
+        channelGrid.getChildren().clear();
+
+        if (list.isEmpty()) {
+            Label empty = new Label("收藏".equals(config.filter)
+                    ? "还没有收藏的频道\n在频道卡片上点右键即可收藏"
+                    : "没有匹配的频道");
+            empty.getStyleClass().add("empty");
+            channelGrid.getChildren().add(empty);
+            return;
+        }
+
+        for (ChannelSpec spec : list) {
+            channelGrid.getChildren().add(buildChannelCard(spec));
+        }
+
+        boolean showContinue = ChannelTable.bySlug(config.lastChannel) != null;
+        continueButton.setVisible(showContinue);
+        if (showContinue) {
+            ChannelSpec last = ChannelTable.bySlug(config.lastChannel);
+            continueButton.setText("继续观看 · " + last.name);
+        }
+    }
+
+    private Region buildChannelCard(ChannelSpec spec) {
+        Label logoText = new Label(initialOf(spec.name));
+        logoText.getStyleClass().add("logo-text");
+        StackPane logoBox = new StackPane(logoText);
+        logoBox.getStyleClass().add("logo-box");
+        logoBox.setPrefSize(Double.MAX_VALUE, 62);
+        colorize(logoBox, spec.slug);
+
+        Image cached = logoCache.get(spec.logo);
+        if (cached != null) {
+            showLogo(logoBox, logoText, cached);
+        } else {
+            loadLogoAsync(spec, logoBox, logoText);
+        }
+
+        Label name = new Label(spec.name);
+        name.getStyleClass().add("channel-name");
+
+        Label badge = new Label(ChannelTable.isTrue4k(spec.slug) ? "4K" : spec.defnLabel());
+        badge.getStyleClass().add("badge");
+
+        Label group = new Label(ChannelTable.isTrue4k(spec.slug) ? "超高清" : spec.group);
+        group.getStyleClass().add("channel-group");
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox meta = new HBox(6, badge, spacer, group);
+        meta.setAlignment(Pos.CENTER_LEFT);
+
+        VBox card = new VBox(7, logoBox, name, meta);
+        card.getStyleClass().add("channel-card");
+        card.setPrefWidth(166);
+        card.setMaxWidth(166);
+
+        boolean fav = config.isFavorite(spec.slug);
+        if (fav) {
+            Label star = new Label("★");
+            star.getStyleClass().add("star");
+            StackPane.setAlignment(star, Pos.TOP_RIGHT);
+            StackPane.setMargin(star, new Insets(4, 6, 0, 0));
+            logoBox.getChildren().add(star);
+        }
+
+        card.setOnMouseClicked(e -> {
+            if (e.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
+                boolean added = config.toggleFavorite(spec.slug);
+                Log.i(TAG, (added ? "已收藏 " : "已取消收藏 ") + spec.name);
+                loadChannelGrid();
+                return;
+            }
+            if (e.getClickCount() >= 1) {
+                openPlayer(spec);
+            }
+        });
+        card.setOnMouseEntered(e -> card.getStyleClass().add("hover"));
+        card.setOnMouseExited(e -> card.getStyleClass().remove("hover"));
+        Tooltip.install(card, new Tooltip(
+                spec.name + "\n" + spec.defnLabel() + " · " + spec.group
+                        + "\n单击播放，右键收藏/取消收藏"));
+
+        return card;
+    }
+
+    private void colorize(StackPane box, String slug) {
+        int hash = slug == null ? 0 : slug.hashCode();
+        int idx = Math.abs(hash) % 6;
+        String[] colors = {"#26364d", "#3a2f4d", "#4d2f38", "#2f4d3d", "#4d432f", "#333a4d"};
+        box.setStyle("-fx-background-color: " + colors[idx] + "; -fx-background-radius: 8;");
+    }
+
+    private static String initialOf(String name) {
+        if (name == null || name.isEmpty()) {
+            return "?";
+        }
+        String t = name.trim();
+        if (t.length() >= 2 && t.charAt(0) < 0x80 && t.charAt(1) < 0x80) {
+            return t.substring(0, 2).toUpperCase(java.util.Locale.ROOT);
+        }
+        return t.substring(0, 1);
+    }
+
+    private void showLogo(StackPane box, Label fallback, Image img) {
+        if (img == null || img.isError()) {
+            return;
+        }
+        ImageView iv = new ImageView(img);
+        iv.setFitWidth(56);
+        iv.setFitHeight(40);
+        iv.setPreserveRatio(true);
+        iv.setSmooth(true);
+        fallback.setVisible(false);
+        box.getChildren().add(0, iv);
+    }
+
+    private void loadLogoAsync(ChannelSpec spec, StackPane box, Label fallback) {
+        Thread t = new Thread(() -> {
+            Image img = null;
+            try {
+                img = new Image(spec.logo, true);
+                if (img.isError()) {
+                    img = null;
+                }
+            } catch (RuntimeException e) {
+                img = null;
+            }
+            final Image got = img;
+            if (got != null) {
+                logoCache.put(spec.logo, got);
+            }
+            Platform.runLater(() -> {
+                if (got != null) {
+                    showLogo(box, fallback, got);
+                }
+            });
+        }, "logo-" + spec.slug);
+        t.setDaemon(true);
+        t.setPriority(Thread.MIN_PRIORITY);
+        t.start();
+    }
+
+    // ------------------------------------------------------------------ 引擎
+
+    private void startEngineAndPlayerHost() {
+        setStatus("正在启动引擎…", "");
+
+        // 先把播放页宿主服务起起来（与引擎无关，快速完成）
+        try {
+            String html = PlayerLauncher.readResourceText("/web/player.html");
+            String hls = PlayerLauncher.readResourceText("/web/hls.min.js");
+            webServer = LocalWebServer.start(html, hls);
+            Log.i(TAG, "播放页服务: " + webServer.baseUrl());
+        } catch (Exception e) {
+            Log.e(TAG, "播放页服务启动失败：" + e);
+        }
+
+        Thread starter = new Thread(() -> {
+            long t0 = System.currentTimeMillis();
+            engine.startAsync(stage -> Platform.runLater(() -> setStatus(stage, "")));
+            // 等待就绪
+            while (System.currentTimeMillis() - t0 < 95_000L) {
+                if (engine.isRunning()) {
+                    Gateway.Snapshot snap = engine.snapshot();
+                    final String origin = snap == null ? "" : snap.localOrigin;
+                    final int port = snap == null ? 0 : snap.port;
+                    final boolean high = snap != null && snap.highBitrateReady;
+                    Platform.runLater(() -> {
+                        setStatus("引擎已就绪", "端口 " + port + " · "
+                                + ChannelTable.all().size() + " 个频道 · "
+                                + (high ? "高码率已就绪" : "1080p 模式"));
+                    });
+                    return;
+                }
+                if (!engine.lastError().isEmpty() && !engine.isRunning()) {
+                    final String err = engine.lastError();
+                    Platform.runLater(() -> setStatus("引擎启动失败", err));
+                    return;
+                }
+                try {
+                    Thread.sleep(500L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            Platform.runLater(() -> setStatus("引擎启动超时", "可到「诊断」查看日志"));
+        }, "engine-watch");
+        starter.setDaemon(true);
+        starter.start();
+    }
+
+    private void setStatus(String main, String detail) {
+        if (statusLabel != null) {
+            statusLabel.setText(main);
+        }
+        if (detailLabel != null) {
+            detailLabel.setText(detail == null ? "" : detail);
+        }
+    }
+
+    // ------------------------------------------------------------------ 播放
+
+    private void openPlayer(ChannelSpec spec) {
+        if (chromiumPath == null) {
+            dialogs().showError("无法播放",
+                    "未检测到 Microsoft Edge 或 Google Chrome。\n\n"
+                            + "Windows 10/11 通常自带 Edge。若已卸载，请安装其中之一后重试。\n\n"
+                            + "（说明：本程序的画面由浏览器内核渲染，因此需要系统里有 Edge/Chrome。）");
+            return;
+        }
+        if (webServer == null) {
+            dialogs().showError("无法播放", "播放页服务未启动，请查看「日志」。");
+            return;
+        }
+        if (!engine.isRunning()) {
+            dialogs().showError("引擎未就绪", "引擎还在启动或启动失败，请稍候或查看「诊断」。");
+            return;
+        }
+        String origin = engine.localOrigin();
+        if (origin == null || origin.isEmpty()) {
+            origin = "http://127.0.0.1:" + config.enginePort;
+        }
+        String streamUrl = origin + "/" + spec.slug + ".m3u8";
+        String pageUrl = webServer.baseUrl() + "/player.html?src="
+                + java.net.URLEncoder.encode(streamUrl, java.nio.charset.StandardCharsets.UTF_8)
+                + "&title=" + java.net.URLEncoder.encode(spec.name, java.nio.charset.StandardCharsets.UTF_8);
+
+        config.lastChannel = spec.slug;
+        config.save();
+        loadChannelGrid();
+        setStatus("正在播放 " + spec.name, spec.defnLabel() + " · " + spec.group);
+
+        try {
+            if (playerSession != null) {
+                playerSession.close();
+                playerSession = null;
+            }
+            Path profile = DesktopConfig.dataDir().resolve("browser-profile");
+            playerSession = PlayerLauncher.open(chromiumPath, pageUrl, spec.name,
+                    config.fullScreenPlayer, profile);
+            Log.i(TAG, "播放 " + spec.name + " -> " + streamUrl);
+        } catch (Exception e) {
+            Log.e(TAG, "打开播放窗口失败：" + e);
+            dialogs().showError("无法打开播放窗口", String.valueOf(e.getMessage()));
+        }
+    }
+
+    // ------------------------------------------------------------------ 对话框
+
+    private Dialogs dialogs() {
+        return new Dialogs(stage, config, engine, this::loadChannelGrid,
+                this::startEngineAndPlayerHost);
+    }
+
+    private void showDiagnostics() {
+        dialogs().showDiagnostics(chromiumPath, webServer == null ? "" : webServer.baseUrl());
+    }
+
+    private void showSettings() {
+        dialogs().showSettings();
+    }
+
+    private void showLogs() {
+        dialogs().showLogs();
+    }
+
+    // ------------------------------------------------------------------ 生命周期
+
+    private void shutdown() {
+        config.save();
+        if (playerSession != null) {
+            playerSession.close();
+            playerSession = null;
+        }
+        if (webServer != null) {
+            webServer.stop();
+            webServer = null;
+        }
+        engine.stop();
+        Platform.exit();
+    }
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+}

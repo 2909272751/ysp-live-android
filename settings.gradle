@@ -18,3 +18,4 @@ rootProject.name = 'YspLive'
 
 include ':core'
 include ':app'
+include ':windows'

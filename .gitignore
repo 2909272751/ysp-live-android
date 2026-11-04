@@ -74,3 +74,23 @@ desktop.ini
 # 构建/检查临时输出
 lint.txt
 t[0-9]*.txt
+
+# Windows 模块产物
+windows/build/
+windows/dist/
+windows/release/
+windows/jpackage-input/
+windows/probe/out/
+windows/ssout/
+windows/*.log
+windows/*.err
+windows/*.txt
+!windows/README.md
+
+# 探针产出的浏览器 profile 与截图
+windows/probe/edge-*
+windows/probe/*.png
+windows/probe/*.log
+/probe-page.html
+/cap-probe.html
+*.err

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>diag</title>
+<style>
+  body{background:#111;color:#0f0;font:12px/1.5 Consolas,monospace;margin:0;padding:12px}
+  #log{white-space:pre-wrap;word-break:break-all}
+  .e{color:#f66}
+  .ok{color:#6f6}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<video id="v" muted playsinline style="width:320px;background:#000"></video>
+
+<script src="hls.min.js"></script>
+<script>
+var L = document.getElementById('log');
+function log(m, cls) {
+  var d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.textContent = m;
+  L.appendChild(d);
+}
+function dumpProps() {
+  var p = new URLSearchParams(location.search);
+  log('src param = ' + p.get('src'));
+  log('Hls present = ' + (typeof Hls !== 'undefined'));
+  if (typeof Hls !== 'undefined') {
+    log('Hls.version = ' + Hls.version);
+    log('Hls.isSupported = ' + Hls.isSupported());
+  }
+  var v = document.getElementById('v');
+  log('MSE = ' + ('MediaSource' in window));
+  log('canPlayType(hls) = "' + v.canPlayType('application/vnd.apple.mpegurl') + '"');
+  log('canPlayType(ts)  = "' + v.canPlayType('video/mp2t') + '"');
+  log('UA = ' + navigator.userAgent);
+}
+dumpProps();
+
+var v = document.getElementById('v');
+var p = new URLSearchParams(location.search);
+var src = p.get('src');
+
+v.addEventListener('error', function () {
+  var e = v.error;
+  log('VIDEO ERROR: code=' + (e ? e.code : '?') + ' msg=' + (e ? e.message : '?'), 'e');
+});
+v.addEventListener('loadedmetadata', function () {
+  log('loadedmetadata dur=' + v.duration, 'ok');
+});
+v.addEventListener('playing', function () { log('PLAYING t=' + v.currentTime, 'ok'); });
+v.addEventListener('timeupdate', function () {
+  if (v.currentTime > 0.3 && !window.__ok) { window.__ok = 1; log('TIMEUPDATE t=' + v.currentTime, 'ok'); }
+});
+
+function startHls() {
+  if (!window.Hls || !Hls.isSupported()) {
+    log('hls.js 不可用，尝试原生', 'e');
+    v.src = src;
+    return;
+  }
+  var h = new Hls({ enableWorker: false, debug: true });
+  window.__hls = h;
+  h.on(Hls.Events.MEDIA_ATTACHED, function () { log('MEDIA_ATTACHED'); });
+  h.on(Hls.Events.MANIFEST_PARSED, function (e, d) {
+    log('MANIFEST_PARSED levels=' + (d.levels ? d.levels.length : '?'), 'ok');
+    if (d.levels) {
+      for (var i = 0; i < d.levels.length; i++) {
+        var lv = d.levels[i];
+        log('  L' + i + ' ' + (lv.width || '?') + 'x' + (lv.height || '?') +
+            ' ' + (lv.bitrate || '?') + 'bps codec=' + (lv.videoCodec || lv.codecs || '?'));
+      }
+    }
+    v.play().catch(function (err) { log('play() rejected: ' + err, 'e'); });
+  });
+  h.on(Hls.Events.LEVEL_LOADED, function (e, d) {
+    log('LEVEL_LOADED frags=' + (d.details ? d.details.fragments.length : '?'));
+  });
+  h.on(Hls.Events.FRAG_LOADED, function (e, d) {
+    log('FRAG_LOADED sn=' + d.frag.sn + ' size=' + (d.payload ? d.payload.byteLength : '?'));
+  });
+  h.on(Hls.Events.ERROR, function (e, d) {
+    log('HLS ERROR fatal=' + d.fatal + ' type=' + d.type + ' details=' + d.details +
+        ' reason=' + (d.reason || '') + ' resp=' + (d.response ? d.response.code : ''), 'e');
+  });
+  h.loadSource(src);
+  h.attachMedia(v);
+}
+startHls();
+</script>
+</body>
+</html>

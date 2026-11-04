@@ -332,6 +332,21 @@ public final class LocalServer {
             }
             String proto = firstProto(req.header("x-forwarded-proto"));
 
+            // CORS 预检：桌面端 WebView(hls.js) / 浏览器播放器会先发 OPTIONS。
+            // 不处理会让所有跨 origin 请求在预检阶段就被浏览器拦掉。
+            if ("OPTIONS".equals(req.method)) {
+                String reqHeaders = req.header("access-control-request-headers");
+                if (reqHeaders == null || reqHeaders.trim().isEmpty()) {
+                    reqHeaders = "Range, Content-Type, Accept";
+                }
+                Map<String, String> cors = new LinkedHashMap<>();
+                cors.put("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+                cors.put("Access-Control-Allow-Headers", reqHeaders);
+                cors.put("Access-Control-Max-Age", "86400");
+                writeResponse(out, 204, "text/plain", new byte[0], false, keepAlive, cors, false);
+                return;
+            }
+
             if (path.equals("/") || path.equals("/index.html")) {
                 sendText(out, req, 200, rootBanner(host), "text/plain; charset=utf-8", keepAlive, null);
                 return;
@@ -855,6 +870,22 @@ public final class LocalServer {
             head.append("Content-Length: ").append(data.length).append("\r\n");
             head.append("Access-Control-Allow-Origin: *\r\n");
             head.append("Cache-Control: no-cache, no-store, max-age=0\r\n");
+        } else {
+            // rawHeaders 会透传上游响应头，但仍必须补 CORS：
+            // 桌面端 WebView(hls.js) 与浏览器播放器是从别的 origin 拉这些资源的，
+            // 缺 Access-Control-Allow-Origin 会直接 manifestLoadError / 分片被拦。
+            boolean hasCors = false;
+            if (extra != null) {
+                for (String hk : extra.keySet()) {
+                    if (hk != null && hk.equalsIgnoreCase("Access-Control-Allow-Origin")) {
+                        hasCors = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasCors) {
+                head.append("Access-Control-Allow-Origin: *\r\n");
+            }
         }
         boolean hasContentLength = false;
         if (extra != null) {
