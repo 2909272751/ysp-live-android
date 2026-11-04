@@ -218,12 +218,92 @@ public final class PlayerActivity extends Activity
                 hideOverlay();
             }
         });
-        playerView.setOnClickListener(new View.OnClickListener() {
+        // ------------------------------------------------------------------
+        // 触摸手势（手机版核心交互；电视版无触摸，这些分支不会触发）
+        //
+        // 参考成熟播放器（MX Player / VLC / 哔哩哔哩）的通用约定：
+        //   单击          -> 显隐控制层
+        //   双击          -> 播放 / 暂停
+        //   左右滑        -> 上/下一个频道（比找按钮快）
+        //   右半边上下滑  -> 音量
+        //   左半边上下滑  -> 亮度
+        // 之前只有「单击显隐控制层」，换台/音量都得先点开控制层再找按钮，
+        // 在手机上是明显的体验落差。
+        // ------------------------------------------------------------------
+        playerView.setClickable(false);
+        final android.view.GestureDetector gestures =
+                new android.view.GestureDetector(this,
+                        new android.view.GestureDetector.SimpleOnGestureListener() {
+                            @Override
+                            public boolean onSingleTapConfirmed(android.view.MotionEvent e) {
+                                toggleOverlay();
+                                return true;
+                            }
+
+                            @Override
+                            public boolean onDoubleTap(android.view.MotionEvent e) {
+                                togglePlayPause();
+                                return true;
+                            }
+
+                            @Override
+                            public boolean onFling(android.view.MotionEvent e1,
+                                                   android.view.MotionEvent e2,
+                                                   float vx, float vy) {
+                                if (e1 == null || e2 == null) {
+                                    return false;
+                                }
+                                float dx = e2.getX() - e1.getX();
+                                float dy = e2.getY() - e1.getY();
+                                float min = 72 * getResources().getDisplayMetrics().density;
+                                if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > min) {
+                                    // 左滑 -> 下一个频道；右滑 -> 上一个频道
+                                    zap(dx < 0 ? 1 : -1);
+                                    return true;
+                                }
+                                return false;
+                            }
+                        });
+
+        playerView.setOnTouchListener(new View.OnTouchListener() {
+            private float downX;
+            private float downY;
+            private boolean vertical;
+
             @Override
-            public void onClick(View v) {
-                toggleOverlay();
+            public boolean onTouch(View v, android.view.MotionEvent e) {
+                gestures.onTouchEvent(e);
+                switch (e.getActionMasked()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        downX = e.getX();
+                        downY = e.getY();
+                        vertical = false;
+                        return true;
+                    case android.view.MotionEvent.ACTION_MOVE: {
+                        float dx = e.getX() - downX;
+                        float dy = e.getY() - downY;
+                        float step = 24 * getResources().getDisplayMetrics().density;
+                        if (!vertical && Math.abs(dy) > Math.abs(dx)
+                                && Math.abs(dy) > step) {
+                            vertical = true;
+                        }
+                        if (vertical) {
+                            if (dy < -step) {
+                                adjustBySide(downX, v.getWidth(), 1);
+                                downY = e.getY();
+                            } else if (dy > step) {
+                                adjustBySide(downX, v.getWidth(), -1);
+                                downY = e.getY();
+                            }
+                        }
+                        return true;
+                    }
+                    default:
+                        return true;
+                }
             }
         });
+
 
         btnPlayPause.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -568,6 +648,83 @@ public final class PlayerActivity extends Activity
         overlay.setVisibility(View.GONE);
         hintKey.setVisibility(View.VISIBLE);
         main.removeCallbacks(hideOverlayTask);
+    }
+
+    // ------------------------------------------------------------------
+    // 手势辅助：音量 / 亮度
+    // ------------------------------------------------------------------
+
+    /** 记录 hintKey 的原始文案，手势提示用完要还原。 */
+    private CharSequence hintKeyOriginal;
+
+    private final Runnable restoreHintTask = new Runnable() {
+        @Override
+        public void run() {
+            if (hintKey == null) {
+                return;
+            }
+            hintKey.setText(hintKeyOriginal == null ? "" : hintKeyOriginal);
+            if (overlayVisible) {
+                hintKey.setVisibility(View.GONE);
+            }
+        }
+    };
+
+    /** 短暂显示一条手势提示，不打断控制层状态。 */
+    private void showGestureHint(String msg) {
+        if (hintKey == null) {
+            return;
+        }
+        if (hintKeyOriginal == null) {
+            hintKeyOriginal = hintKey.getText();
+        }
+        hintKey.setText(msg);
+        hintKey.setVisibility(View.VISIBLE);
+        main.removeCallbacks(restoreHintTask);
+        main.postDelayed(restoreHintTask, 900);
+    }
+
+    /**
+     * 屏幕右半边上下滑 = 音量；左半边 = 亮度。
+     * direction &gt; 0 为增大。
+     */
+    private void adjustBySide(float downX, int viewWidth, int direction) {
+        boolean rightSide = downX > viewWidth / 2f;
+        if (rightSide) {
+            try {
+                android.media.AudioManager am =
+                        (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+                if (am == null) {
+                    return;
+                }
+                am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+                        direction > 0
+                                ? android.media.AudioManager.ADJUST_RAISE
+                                : android.media.AudioManager.ADJUST_LOWER,
+                        0);
+                int cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC);
+                int max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC);
+                int pct = max <= 0 ? 0 : Math.round(cur * 100f / max);
+                showGestureHint("音量 " + pct + "%");
+            } catch (RuntimeException ignored) {
+                // 某些设备/权限场景下取不到 AudioManager，静默失败即可
+            }
+        } else {
+            try {
+                android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+                float cur = lp.screenBrightness;
+                if (cur < 0f) {
+                    cur = 0.5f;   // 跟随系统时先取中间值作为起点
+                }
+                cur += direction * 0.05f;
+                cur = Math.max(0.05f, Math.min(1f, cur));
+                lp.screenBrightness = cur;
+                getWindow().setAttributes(lp);
+                showGestureHint("亮度 " + Math.round(cur * 100) + "%");
+            } catch (RuntimeException ignored) {
+                // 忽略
+            }
+        }
     }
 
     private void resetOverlayTimer() {

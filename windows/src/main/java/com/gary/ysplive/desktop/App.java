@@ -69,10 +69,12 @@ public final class App extends Application {
      * 之前排查"看不到控制条"时无法确认用户装的是哪一版，浪费了很多时间。
      * 现在标题栏、诊断页都会显示这个版本号，一眼可辨。
      */
-    static final String VERSION = "9.6.0";
+    static final String VERSION = "9.6.1";
     private static final String[] FILTERS = {"全部", "央视", "卫视", "4K", "收藏"};
 
     private Stage stage;
+    /** 当前 App 实例，供自动化测试使用（生产路径不依赖它）。 */
+    static volatile App INSTANCE;
     private DesktopConfig config;
     private EngineController engine;
     private LocalWebServer webServer;
@@ -112,6 +114,8 @@ public final class App extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.stage = primaryStage;
+        // 便于自动化测试取得 App 实例（例如验证窗口尺寸记忆逻辑）。
+        INSTANCE = this;
         // 关键：默认 JavaFX 在"最后一个窗口隐藏"时会自动退出。
         // 我们的主窗口会被收进托盘（hide 而非 close），且播放器是独立的
         // Swing 窗口。若允许隐式退出，JavaFX 会先死掉而 Swing 还活着，
@@ -206,7 +210,18 @@ public final class App extends Application {
             layered.getChildren().add(root);
         }
 
-        Scene scene = new Scene(layered, config.windowWidth, config.windowHeight);
+        // 恢复尺寸时先按当前屏幕做钳制。
+        // 以前这里直接用 config 里的值，而那个值可能是上次「最大化」时误存的
+        // 屏幕尺寸，于是窗口一次比一次大、位置一路往左上跑，
+        // 用户看到的现象就是「每次启动窗口都变大还往上飘」。
+        javafx.geometry.Rectangle2D screenBounds =
+                javafx.stage.Screen.getPrimary().getVisualBounds();
+        int safeW = (int) Math.max(880,
+                Math.min(config.windowWidth, screenBounds.getWidth() - 40));
+        int safeH = (int) Math.max(560,
+                Math.min(config.windowHeight, screenBounds.getHeight() - 40));
+
+        Scene scene = new Scene(layered, safeW, safeH);
         try {
             java.net.URL css = App.class.getResource("/ui/app.css");
             if (css != null) {
@@ -255,13 +270,20 @@ public final class App extends Application {
         });
 
         // 记住窗口尺寸与位置（关闭时统一保存，避免拖动过程中频繁写盘）
+        //
+        // ★ 必须排除「最大化 / 最小化」状态：
+        //   最大化时 width/height 就是屏幕尺寸，若此时写入 config，
+        //   下次启动会用一个比屏幕还大的尺寸开窗，被系统挤到屏幕外，
+        //   然后用户再最大化又存一次更大的值 —— 窗口会一次次变大。
         primaryStage.widthProperty().addListener((o, a, b) -> {
-            if (b != null && b.doubleValue() > 200) {
+            if (b != null && b.doubleValue() > 200
+                    && !primaryStage.isMaximized() && !primaryStage.isIconified()) {
                 config.windowWidth = b.intValue();
             }
         });
         primaryStage.heightProperty().addListener((o, a, b) -> {
-            if (b != null && b.doubleValue() > 200) {
+            if (b != null && b.doubleValue() > 200
+                    && !primaryStage.isMaximized() && !primaryStage.isIconified()) {
                 config.windowHeight = b.intValue();
             }
         });
