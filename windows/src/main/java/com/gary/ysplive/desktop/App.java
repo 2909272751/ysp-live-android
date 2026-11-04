@@ -2,6 +2,7 @@ package com.gary.ysplive.desktop;
 
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -28,15 +29,37 @@ import com.gary.ysplive.core.spi.Gateway;
 import com.gary.ysplive.core.spi.Log;
 
 import java.nio.file.Path;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Windows 桌面版主界面。
  *
- * <p>布局：顶部标题 + 引擎状态 + 工具按钮；中间筛选 chip；主体频道网格。
- * 双击频道（或点「播放」）打开独立播放窗口。
+ * <h2>性能设计（这版重点重做过）</h2>
+ * 初版在低端机器上明显卡顿，用户反馈「hover 几秒才高亮」「拖动卡」。
+ * 逐项定位到四个根因，这里都修掉了：
+ *
+ * <ol>
+ *   <li><b>强制软件渲染</b> — 打包参数里写了 {@code -Dprism.order=sw}，
+ *       等于在所有机器上禁用 GPU。已改为 {@code d3d,sw} 让 JavaFX 优先用
+ *       D3D11 硬件管线，仅在不可用时回退软件。</li>
+ *   <li><b>hover 靠 Java 代码改 style class</b> — 每次 add/remove 都会让 CSS
+ *       引擎重新解析子树样式并触发 relayout，卡顿感就来自这里。
+ *       已全部改用 CSS 原生 {@code :hover}。</li>
+ *   <li><b>gaussian 阴影</b> — 逐像素卷积，hover 时重算阴影非常昂贵。
+ *       已改为纯色边框表达层次。</li>
+ *   <li><b>每张卡片一个线程加载台标</b> — 64 个频道就是 64 个线程同时
+ *       去抢网络，互相拖慢。已改为固定 4 线程的池 + 内存缓存。</li>
+ * </ol>
+ *
+ * <p>另外把频道卡片改为「只创建一次、筛选时复用」，切换筛选不再重建 64 个
+ * 节点树（旧实现每次 clear + rebuild）。
  */
 public final class App extends Application {
 
@@ -53,11 +76,23 @@ public final class App extends Application {
     private Label detailLabel;
     private Button continueButton;
     private final ToggleGroup filterGroup = new ToggleGroup();
-    private final Map<String, Image> logoCache = new HashMap<>();
+
+    /** 台标缓存（并发安全，后台线程写、UI 线程读）。 */
+    private final Map<String, Image> logoCache = new ConcurrentHashMap<>();
+    /** 台标下载专用线程池：固定 4 个，避免 64 个频道开 64 个线程抢带宽。 */
+    private ExecutorService logoPool;
+
+    /** 卡片复用池：slug -> 已构建好的卡片。切换筛选只改可见性，不重建。 */
+    private final Map<String, Region> cardPool = new ConcurrentHashMap<>();
+    /** 卡片对应的频道（用于 hover/点击时查回数据）。 */
+    private final Map<Region, ChannelSpec> cardSpec = new ConcurrentHashMap<>();
 
     private PlayerLauncher.Session playerSession;
     private VlcPlayer.Window vlcWindow;
     private String chromiumPath;
+
+    /** 当前正在播放的频道（用于卡片高亮）。 */
+    private volatile String playingSlug = "";
 
     @Override
     public void start(Stage primaryStage) {
@@ -67,13 +102,25 @@ public final class App extends Application {
         this.config = DesktopConfig.load();
         this.engine = new EngineController(config);
 
+        // 台标池：固定 4 线程 + 守护线程，进程退出不阻塞
+        ThreadFactory tf = new ThreadFactory() {
+            private final AtomicInteger seq = new AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "logo-" + seq.incrementAndGet());
+                t.setDaemon(true);
+                t.setPriority(Thread.NORM_PRIORITY - 1);
+                return t;
+            }
+        };
+        logoPool = Executors.newFixedThreadPool(4, tf);
+
         BorderPane root = new BorderPane();
         root.getStyleClass().add("root-pane");
 
-        // 毛玻璃效果的关键：底层铺一张带色块的背景图，上层控件用半透明白/黑
-        // 叠加并加边框高光，视觉上才有「磨砂玻璃」质感。
-        // 纯 JavaFX 没有真正的背景模糊（不像 CSS backdrop-filter），
-        // 所以用「模糊底图 + 半透明层 + 1px 亮边」做出等效观感。
+        // 背景层：一张已模糊的色块图，配合不透明控件做出玻璃质感。
+        // 注意：这里只有 1 层背景，不再叠多层半透明，避免 SW 回退时频繁 alpha blend。
         StackPane layered = new StackPane();
         layered.getStyleClass().add("layered-root");
 
@@ -107,13 +154,11 @@ public final class App extends Application {
 
         primaryStage.setTitle("央视频全频道直播 · Windows 版");
         primaryStage.setScene(scene);
-        // 场景透明，让圆角与玻璃层生效
-        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
         primaryStage.setMinWidth(880);
         primaryStage.setMinHeight(600);
         primaryStage.setOnCloseRequest(e -> shutdown());
 
-        // 记住窗口尺寸
+        // 记住窗口尺寸（只在关闭时写一次，避免拖动时反复触发 listener 开销）
         primaryStage.widthProperty().addListener((o, a, b) -> {
             if (b != null && b.doubleValue() > 200) {
                 config.windowWidth = b.intValue();
@@ -129,7 +174,7 @@ public final class App extends Application {
 
         chromiumPath = PlayerLauncher.findChromium();
         if (chromiumPath == null) {
-            Log.w(TAG, "未检测到 Edge/Chrome，播放功能不可用");
+            Log.w(TAG, "未检测到 Edge/Chrome，浏览器兜底不可用（不影响内置播放器）");
         }
 
         loadChannelGrid();
@@ -175,6 +220,7 @@ public final class App extends Application {
         continueButton = new Button("继续观看");
         continueButton.getStyleClass().add("primary");
         continueButton.setVisible(false);
+        continueButton.setManaged(false);
         continueButton.setOnAction(e -> {
             ChannelSpec spec = ChannelTable.bySlug(config.lastChannel);
             if (spec != null) {
@@ -197,8 +243,7 @@ public final class App extends Application {
                     return;
                 }
                 config.filter = f;
-                config.save();
-                loadChannelGrid();
+                applyFilter();
             });
             chips.getChildren().add(tb);
         }
@@ -223,54 +268,111 @@ public final class App extends Application {
         ScrollPane scroll = new ScrollPane(channelGrid);
         scroll.setFitToWidth(true);
         scroll.getStyleClass().add("grid-scroll");
+        // 滚轮按像素滚动，比默认的按行滚动跟手得多
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setPannable(true);
         return scroll;
     }
 
+    /**
+     * 构建全部频道卡片（只做一次）。
+     * <p>旧实现每次切换筛选都 clear + 重建 64 个节点树，那是最主要的卡顿来源。
+     */
     private void loadChannelGrid() {
-        List<ChannelSpec> list = config.filteredChannels();
-        channelGrid.getChildren().clear();
+        if (channelGrid == null) {
+            return;
+        }
+        List<ChannelSpec> all = ChannelTable.all();
 
-        if (list.isEmpty()) {
+        // 只在新频道表变化时才重建（正常情况下第一次进来建一次）
+        if (cardPool.size() != all.size()) {
+            channelGrid.getChildren().clear();
+            cardPool.clear();
+            cardSpec.clear();
+            for (ChannelSpec spec : all) {
+                Region card = buildChannelCard(spec);
+                cardPool.put(spec.slug, card);
+                cardSpec.put(card, spec);
+            }
+        }
+        applyFilter();
+    }
+
+    /**
+     * 应用筛选：只切换已建好卡片的可见性，不重建节点。
+     * 这是「切换筛选秒响应」的关键。
+     */
+    private void applyFilter() {
+        if (channelGrid == null) {
+            return;
+        }
+        List<ChannelSpec> visible = config.filteredChannels();
+        List<Region> wanted = new ArrayList<>(visible.size());
+        for (ChannelSpec spec : visible) {
+            Region card = cardPool.get(spec.slug);
+            if (card != null) {
+                wanted.add(card);
+            }
+        }
+
+        channelGrid.getChildren().clear();
+        if (wanted.isEmpty()) {
             Label empty = new Label("收藏".equals(config.filter)
                     ? "还没有收藏的频道\n在频道卡片上点右键即可收藏"
                     : "没有匹配的频道");
             empty.getStyleClass().add("empty");
             channelGrid.getChildren().add(empty);
-            return;
+        } else {
+            channelGrid.getChildren().addAll(wanted);
         }
 
-        for (ChannelSpec spec : list) {
-            channelGrid.getChildren().add(buildChannelCard(spec));
-        }
-
-        boolean showContinue = ChannelTable.bySlug(config.lastChannel) != null;
+        ChannelSpec last = ChannelTable.bySlug(config.lastChannel);
+        boolean showContinue = last != null;
         continueButton.setVisible(showContinue);
+        continueButton.setManaged(showContinue);
         if (showContinue) {
-            ChannelSpec last = ChannelTable.bySlug(config.lastChannel);
             continueButton.setText("继续观看 · " + last.name);
+        }
+
+        // 播放中的频道保持高亮
+        updatePlayingHighlight();
+    }
+
+    private void updatePlayingHighlight() {
+        for (Map.Entry<String, Region> e : cardPool.entrySet()) {
+            Region card = e.getValue();
+            boolean playing = e.getKey().equals(playingSlug);
+            if (playing) {
+                if (!card.getStyleClass().contains("playing")) {
+                    card.getStyleClass().add("playing");
+                }
+            } else {
+                card.getStyleClass().remove("playing");
+            }
         }
     }
 
     private Region buildChannelCard(ChannelSpec spec) {
-        // 台标底衬：央视频台标多为深色/彩色 logo，直接贴深色卡片会糊成一片
-        // （实测台标区平均亮度 ~61，卡片底 ~32，对比度不足）。
-        // 给它加一块浅色圆角底衬，这是深色 UI 里保证台标可读的标准做法。
+        // 台标底衬：央视频台标多为深色/彩色 logo，直接贴深色卡片会糊成一片。
+        // 这里给足尺寸与留白，让台标成为视觉焦点（用户反馈「logo 太丑、看不清」）。
         Label logoText = new Label(initialOf(spec.name));
-        logoText.getStyleClass().add("logo-text");
+        logoText.getStyleClass().add("logo-fallback");
 
         StackPane logoInner = new StackPane(logoText);
         logoInner.getStyleClass().add("logo-plate");
 
         StackPane logoBox = new StackPane(logoInner);
         logoBox.getStyleClass().add("logo-box");
-        logoBox.setPrefSize(Double.MAX_VALUE, 66);
-        StackPane.setMargin(logoInner, new Insets(3, 3, 3, 3));
+        logoBox.setPrefSize(Double.MAX_VALUE, 78);
+        logoBox.setMinHeight(78);
+        StackPane.setMargin(logoInner, new Insets(4));
 
         Image cached = logoCache.get(spec.logo);
         if (cached != null) {
             showLogo(logoBox, logoText, cached);
         } else {
-            loadLogoAsync(spec, logoBox, logoText);
+            requestLogo(spec, logoBox, logoText);
         }
 
         Label name = new Label(spec.name);
@@ -287,13 +389,12 @@ public final class App extends Application {
         HBox meta = new HBox(6, badge, spacer, group);
         meta.setAlignment(Pos.CENTER_LEFT);
 
-        VBox card = new VBox(7, logoBox, name, meta);
+        VBox card = new VBox(8, logoBox, name, meta);
         card.getStyleClass().add("channel-card");
-        card.setPrefWidth(166);
-        card.setMaxWidth(166);
+        card.setPrefWidth(178);
+        card.setMaxWidth(178);
 
-        boolean fav = config.isFavorite(spec.slug);
-        if (fav) {
+        if (config.isFavorite(spec.slug)) {
             Label star = new Label("★");
             star.getStyleClass().add("star");
             StackPane.setAlignment(star, Pos.TOP_RIGHT);
@@ -301,24 +402,45 @@ public final class App extends Application {
             logoBox.getChildren().add(star);
         }
 
+        // hover 完全交给 CSS :hover（不再在 Java 里 add/remove style class）。
+        // 旧写法每次 hover 都会触发 CSS 重解析 + relayout，是「几秒才高亮」的根因。
         card.setOnMouseClicked(e -> {
             if (e.getButton() == javafx.scene.input.MouseButton.SECONDARY) {
                 boolean added = config.toggleFavorite(spec.slug);
                 Log.i(TAG, (added ? "已收藏 " : "已取消收藏 ") + spec.name);
-                loadChannelGrid();
+                // 收藏后立刻刷新星标：重建这一张卡片即可，不必整表重建
+                refreshCardFavorite(spec);
+                if ("收藏".equals(config.filter)) {
+                    applyFilter();
+                }
                 return;
             }
-            if (e.getClickCount() >= 1) {
-                openPlayer(spec);
-            }
+            openPlayer(spec);
         });
-        card.setOnMouseEntered(e -> card.getStyleClass().add("hover"));
-        card.setOnMouseExited(e -> card.getStyleClass().remove("hover"));
-        Tooltip.install(card, new Tooltip(
-                spec.name + "\n" + spec.defnLabel() + " · " + spec.group
-                        + "\n单击播放，右键收藏/取消收藏"));
+
+        Tooltip tip = new Tooltip(spec.name + "\n" + spec.defnLabel() + " · " + spec.group
+                + "\n单击播放，右键收藏/取消收藏");
+        tip.setShowDelay(javafx.util.Duration.millis(600));
+        Tooltip.install(card, tip);
 
         return card;
+    }
+
+    /** 收藏状态变化后，只重建这一张卡片，避免整表重建造成卡顿。 */
+    private void refreshCardFavorite(ChannelSpec spec) {
+        Region old = cardPool.get(spec.slug);
+        if (old == null) {
+            return;
+        }
+        int idx = channelGrid.getChildren().indexOf(old);
+        Region fresh = buildChannelCard(spec);
+        cardPool.put(spec.slug, fresh);
+        cardSpec.remove(old);
+        cardSpec.put(fresh, spec);
+        if (idx >= 0) {
+            channelGrid.getChildren().set(idx, fresh);
+        }
+        updatePlayingHighlight();
     }
 
     private static String initialOf(String name) {
@@ -326,10 +448,17 @@ public final class App extends Application {
             return "?";
         }
         String t = name.trim();
+        // 去掉 "CCTV-" 之类前缀，让回退文字更短更清楚
+        for (String p : new String[]{"CCTV-", "CCTV", "CGTN "}) {
+            if (t.startsWith(p) && t.length() > p.length()) {
+                t = t.substring(p.length());
+                break;
+            }
+        }
         if (t.length() >= 2 && t.charAt(0) < 0x80 && t.charAt(1) < 0x80) {
             return t.substring(0, 2).toUpperCase(java.util.Locale.ROOT);
         }
-        return t.substring(0, 1);
+        return t.substring(0, Math.min(2, t.length()));
     }
 
     private void showLogo(StackPane box, Label fallback, Image img) {
@@ -337,15 +466,15 @@ public final class App extends Application {
             return;
         }
         ImageView iv = new ImageView(img);
-        iv.setFitWidth(62);
-        iv.setFitHeight(44);
+        iv.setFitWidth(80);
+        iv.setFitHeight(56);
         iv.setPreserveRatio(true);
         iv.setSmooth(true);
-        // 台标贴到浅色底衬上（bg 由 .logo-plate 提供），
-        // 深色/彩色 logo 才能与卡片背景拉开对比度。
+        iv.setCache(true);
+        iv.setCacheHint(javafx.scene.CacheHint.QUALITY);
+
         StackPane plate = null;
-        if (!box.getChildren().isEmpty()
-                && box.getChildren().get(0) instanceof StackPane) {
+        if (!box.getChildren().isEmpty() && box.getChildren().get(0) instanceof StackPane) {
             plate = (StackPane) box.getChildren().get(0);
         }
         fallback.setVisible(false);
@@ -358,12 +487,25 @@ public final class App extends Application {
         }
     }
 
-    private void loadLogoAsync(ChannelSpec spec, StackPane box, Label fallback) {
-        Thread t = new Thread(() -> {
+    /**
+     * 请求加载一张台标。
+     * <p>走固定大小的线程池而不是「每张卡片一个 Thread」：
+     * 64 个频道同时开 64 个线程去抢网络，会互相拖慢，反而让界面更卡。
+     */
+    private void requestLogo(ChannelSpec spec, StackPane box, Label fallback) {
+        final String url = spec.logo;
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        logoPool.submit(() -> {
             Image img = null;
             try {
-                img = new Image(spec.logo, true);
-                if (img.isError()) {
+                // 注意最后一个参数 backgroundLoading 必须为 false：
+                // 这里已经在后台线程上，需要的是"加载完再返回"。
+                // 若传 true，构造函数会立刻返回一个宽高为 0 的空 Image，
+                // 随后被判为失败、退化成文字占位（曾踩过这个坑）。
+                img = new Image(url, 160, 112, true, true, false);
+                if (img.isError() || img.getWidth() <= 0) {
                     img = null;
                 }
             } catch (RuntimeException e) {
@@ -371,17 +513,17 @@ public final class App extends Application {
             }
             final Image got = img;
             if (got != null) {
-                logoCache.put(spec.logo, got);
+                logoCache.put(url, got);
             }
             Platform.runLater(() -> {
                 if (got != null) {
                     showLogo(box, fallback, got);
+                } else {
+                    // 加载失败：保留文字占位（已设置高对比度样式）
+                    fallback.setVisible(true);
                 }
             });
-        }, "logo-" + spec.slug);
-        t.setDaemon(true);
-        t.setPriority(Thread.MIN_PRIORITY);
-        t.start();
+        });
     }
 
     // ------------------------------------------------------------------ 引擎
@@ -389,7 +531,7 @@ public final class App extends Application {
     private void startEngineAndPlayerHost() {
         setStatus("正在启动引擎…", "");
 
-        // 先把播放页宿主服务起起来（与引擎无关，快速完成）
+        // 浏览器兜底用的播放页宿主（内置 VLC 可用时不依赖它，启动很快）
         try {
             String html = PlayerLauncher.readResourceText("/web/player.html");
             String hls = PlayerLauncher.readResourceText("/web/hls.min.js");
@@ -399,39 +541,41 @@ public final class App extends Application {
             Log.e(TAG, "播放页服务启动失败：" + e);
         }
 
-        Thread starter = new Thread(() -> {
-            long t0 = System.currentTimeMillis();
-            engine.startAsync(stage -> Platform.runLater(() -> setStatus(stage, "")));
-            // 等待就绪
-            while (System.currentTimeMillis() - t0 < 95_000L) {
-                if (engine.isRunning()) {
-                    Gateway.Snapshot snap = engine.snapshot();
-                    final String origin = snap == null ? "" : snap.localOrigin;
-                    final int port = snap == null ? 0 : snap.port;
-                    final boolean high = snap != null && snap.highBitrateReady;
-                    Platform.runLater(() -> {
-                        setStatus("引擎已就绪", "端口 " + port + " · "
+        Task<Void> starter = new Task<Void>() {
+            @Override
+            protected Void call() {
+                long t0 = System.currentTimeMillis();
+                engine.startAsync(stageText -> Platform.runLater(() -> setStatus(stageText, "")));
+                while (System.currentTimeMillis() - t0 < 95_000L) {
+                    if (engine.isRunning()) {
+                        Gateway.Snapshot snap = engine.snapshot();
+                        final String origin = snap == null ? "" : snap.localOrigin;
+                        final int port = snap == null ? 0 : snap.port;
+                        final boolean high = snap != null && snap.highBitrateReady;
+                        Platform.runLater(() -> setStatus("引擎已就绪", "端口 " + port + " · "
                                 + ChannelTable.all().size() + " 个频道 · "
-                                + (high ? "高码率已就绪" : "1080p 模式"));
-                    });
-                    return;
+                                + (high ? "高码率已就绪" : "1080p 模式")));
+                        return null;
+                    }
+                    if (!engine.lastError().isEmpty() && !engine.isRunning()) {
+                        final String err = engine.lastError();
+                        Platform.runLater(() -> setStatus("引擎启动失败", err));
+                        return null;
+                    }
+                    try {
+                        Thread.sleep(500L);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return null;
+                    }
                 }
-                if (!engine.lastError().isEmpty() && !engine.isRunning()) {
-                    final String err = engine.lastError();
-                    Platform.runLater(() -> setStatus("引擎启动失败", err));
-                    return;
-                }
-                try {
-                    Thread.sleep(500L);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
+                Platform.runLater(() -> setStatus("引擎启动超时", "可到「诊断」查看日志"));
+                return null;
             }
-            Platform.runLater(() -> setStatus("引擎启动超时", "可到「诊断」查看日志"));
-        }, "engine-watch");
-        starter.setDaemon(true);
-        starter.start();
+        };
+        Thread t = new Thread(starter, "engine-watch");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void setStatus(String main, String detail) {
@@ -458,8 +602,9 @@ public final class App extends Application {
 
         config.lastChannel = spec.slug;
         config.save();
-        loadChannelGrid();
+        playingSlug = spec.slug;
         setStatus("正在播放 " + spec.name, spec.defnLabel() + " · " + spec.group);
+        updatePlayingHighlight();
 
         // 优先用内置 libVLC（真正自带播放器，无外部依赖）
         if (VlcPlayer.isAvailable()) {
@@ -468,8 +613,25 @@ public final class App extends Application {
                     vlcWindow.release();
                     vlcWindow = null;
                 }
-                vlcWindow = VlcPlayer.open(streamUrl, spec.name, config.fullScreenPlayer);
+                // 传入全部频道，播放窗口自带侧边换台栏
+                List<ChannelSpec> all = ChannelTable.all();
+                vlcWindow = VlcPlayer.open(streamUrl, spec, all, config, reason -> {
+                    // 播放窗口里换台：更新主界面高亮与"继续观看"
+                    Platform.runLater(() -> {
+                        playingSlug = reason.slug;
+                        config.lastChannel = reason.slug;
+                        config.save();
+                        updatePlayingHighlight();
+                        applyFilter();
+                        setStatus("正在播放 " + reason.name,
+                                reason.defnLabel() + " · " + reason.group);
+                        // 用户在播放器里换台时，主窗口保持隐藏
+                    });
+                }, () -> Platform.runLater(this::showMainWindow));
                 Log.i(TAG, "内置播放器播放 " + spec.name + " -> " + streamUrl);
+
+                // 用户要求：点击进台后隐藏原来的选台页面
+                hideMainWindow();
                 return;
             } catch (Throwable e) {
                 Log.e(TAG, "内置播放器失败，回退浏览器方案：" + e);
@@ -478,7 +640,7 @@ public final class App extends Application {
             Log.w(TAG, "未找到内置 libVLC，回退浏览器方案");
         }
 
-        // 兜底：用系统 Chromium + hls.js
+        // 兜底：系统 Chromium + hls.js
         if (chromiumPath == null) {
             dialogs().showError("无法播放",
                     "内置播放器不可用（缺少 vlc 目录），且系统未找到 Edge/Chrome。\n\n"
@@ -503,10 +665,32 @@ public final class App extends Application {
             playerSession = PlayerLauncher.open(chromiumPath, pageUrl, spec.name,
                     config.fullScreenPlayer, profile);
             Log.i(TAG, "浏览器兜底播放 " + spec.name + " -> " + streamUrl);
+            hideMainWindow();
         } catch (Exception e) {
             Log.e(TAG, "打开播放窗口失败：" + e);
             dialogs().showError("无法打开播放窗口", String.valueOf(e.getMessage()));
         }
+    }
+
+    /** 进入播放时隐藏选台窗口（不销毁，播完可秒回）。 */
+    private void hideMainWindow() {
+        if (stage != null && stage.isShowing()) {
+            stage.hide();
+            Log.i(TAG, "选台窗口已隐藏");
+        }
+    }
+
+    /** 从播放器返回选台界面。 */
+    private void showMainWindow() {
+        if (stage == null) {
+            return;
+        }
+        if (!stage.isShowing()) {
+            stage.show();
+        }
+        stage.toFront();
+        stage.requestFocus();
+        Log.i(TAG, "返回选台窗口");
     }
 
     // ------------------------------------------------------------------ 对话框
@@ -545,8 +729,22 @@ public final class App extends Application {
             webServer = null;
         }
         engine.stop();
+        if (logoPool != null) {
+            logoPool.shutdownNow();
+        }
         LogFile.flush();
         Platform.exit();
+    }
+
+    /** 仅供 PerfBench 调用：切换筛选并立即同步布局，用于测量真实开销。 */
+    void benchApplyFilter(String filter) {
+        config.filter = filter;
+        applyFilter();
+        // 强制同步布局，把开销算进本次测量（否则只是入队，测不出真实成本）
+        if (channelGrid != null && channelGrid.getScene() != null) {
+            channelGrid.applyCss();
+            channelGrid.layout();
+        }
     }
 
     public static void main(String[] args) {

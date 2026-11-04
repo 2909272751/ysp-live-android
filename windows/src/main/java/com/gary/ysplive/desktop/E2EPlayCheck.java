@@ -1,5 +1,7 @@
 package com.gary.ysplive.desktop;
 
+import com.gary.ysplive.core.data.ChannelSpec;
+import com.gary.ysplive.core.data.ChannelTable;
 import com.gary.ysplive.core.spi.Log;
 
 import java.io.File;
@@ -67,7 +69,14 @@ public final class E2EPlayCheck {
         // 播放
         sb.append("opening libVLC player...\n");
         try {
-            VlcPlayer.Window w = VlcPlayer.open(mrl, slug, false);
+            ChannelSpec spec = ChannelTable.bySlug(slug);
+            if (spec == null) {
+                engine.stop();
+                finish(outPath, sb, "FAIL: unknown channel " + slug);
+                return;
+            }
+            VlcPlayer.Window w = VlcPlayer.open(mrl, spec, ChannelTable.all(),
+                    config, s -> { }, () -> { });
             sb.append("player opened\n");
 
             // 等 18 秒，看是否进入 PLAYING 且有分片推进

@@ -22,11 +22,17 @@ $jpArgs = @(
     '--java-options', '-Dfile.encoding=UTF-8',
     '--java-options', '-Dstdout.encoding=UTF-8',
     '--java-options', '-Dstderr.encoding=UTF-8',
-    '--java-options', '-Dprism.order=sw'
-    # NOTE: do NOT pass --win-console.
-    # It produces PE subsystem=3 (CONSOLE), which makes Windows attach a black
-    # console window that stays visible the whole time the app runs.
-    # Diagnostics go to a log file instead (see LogFile in the app).
+    # Try D3D hardware first, fall back to software automatically.
+    # Forcing 'sw' (as earlier builds did) disables GPU acceleration on every
+    # machine and is the main cause of the reported UI lag / unresponsive hover.
+    '--java-options', '-Dprism.order=d3d,sw',
+    # Keep the UI thread responsive: modern GC + modest fixed heap so we do not
+    # spend time growing/collecting during scrolling.
+    '--java-options', '-XX:+UseG1GC',
+    '--java-options', '-XX:MaxGCPauseMillis=20',
+    '--java-options', '-Xmx512m'
+    # NOTE 1: do NOT pass --win-console (would create PE subsystem=3 CONSOLE
+    #         and a black console window that stays up).
 )
 & "$env:JAVA_HOME\bin\jpackage.exe" @jpArgs 2>&1 | Select-Object -Last 10
 if ($LASTEXITCODE -ne 0) { Write-Host "JPACKAGE FAILED"; exit 1 }
