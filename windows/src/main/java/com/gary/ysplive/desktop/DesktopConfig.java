@@ -39,6 +39,10 @@ final class DesktopConfig {
     String filter = "全部";
     int windowWidth = 1120;
     int windowHeight = 760;
+    /** 窗口位置；-1 表示未记录过（首次启动居中显示）。 */
+    double windowX = -1;
+    double windowY = -1;
+    boolean windowMaximized = false;
     final List<String> favorites = new ArrayList<>();
 
     private DesktopConfig(Path file) {
@@ -92,6 +96,9 @@ final class DesktopConfig {
         filter = props.getProperty("ui.filter", filter);
         windowWidth = intOf("ui.width", windowWidth);
         windowHeight = intOf("ui.height", windowHeight);
+        windowX = doubleOf("ui.x", windowX);
+        windowY = doubleOf("ui.y", windowY);
+        windowMaximized = boolOf("ui.maximized", windowMaximized);
         String fav = props.getProperty("favorites", "");
         favorites.clear();
         for (String s : fav.split(",")) {
@@ -116,6 +123,9 @@ final class DesktopConfig {
         props.setProperty("ui.filter", filter == null ? "全部" : filter);
         props.setProperty("ui.width", String.valueOf(windowWidth));
         props.setProperty("ui.height", String.valueOf(windowHeight));
+        props.setProperty("ui.x", String.valueOf(windowX));
+        props.setProperty("ui.y", String.valueOf(windowY));
+        props.setProperty("ui.maximized", String.valueOf(windowMaximized));
         props.setProperty("favorites", String.join(",", favorites));
         try {
             Files.createDirectories(file.getParent());

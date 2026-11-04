@@ -61,6 +61,13 @@
 **点击进台后隐藏选台窗口**
 进入播放后主窗口 `hide()`；关闭播放窗口或 `Esc` 返回时自动 `show()` 并置前，秒回。
 
+#### 5. 商用化补强
+
+- **单实例保护**：重复双击图标不会再起第二个窗口（之前两个实例会争抢 8767 端口、
+  互相覆盖配置文件）。用 FileLock 实现，进程崩溃时由系统自动释放，不会留下假占用。
+- **窗口位置记忆**：记住上次的大小、位置、最大化状态；并做边界钳制，
+  防止拔掉外接显示器后窗口跑到屏幕外找不回来。
+
 ---
 
 ### 界面
@@ -125,8 +132,8 @@ channels         = 64
 | `YspLive-Desktop.jar` | 13 MB | 单文件 jar，需自备 `vlc\` 目录 |
 
 SHA-256
-- `Setup.exe`：`61B11A51C03AFA68DD4A76DC4F210F66E6D2A7B402A6F4CF9D53BD0B7420B102`
-- `selfcontained.zip`：`8A4AFBA889D878D40AC3700E98D006F130108CA2787A394432E30C67F35A5CBD`
+- `Setup.exe`：`939FEA3F3B08D409AB7DD8ED1CD4E5D51FC43EECB18F56AFA7C7FEFFBAA1A2F6`
+- `selfcontained.zip`：`FBED26DB494CF0DCCAA5F3B899B8E46CBEBB948A4C14C26B1E1CC358C5F9F0E0`
 
 **系统要求**：Windows 10 / 11 64 位。
 

@@ -97,8 +97,39 @@ public final class App extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.stage = primaryStage;
-        // 安装版是 GUI 子系统（无控制台），日志必须落文件才能排查问题。
+        // 日志先起来，这样单实例判定的结果能落盘（否则日志里查不到原因）。
         LogFile.start();
+
+        // 单实例保护：避免多个窗口争抢同一引擎端口、互相覆盖配置。
+        if (!SingleInstance.acquire()) {
+            Log.w(TAG, "已有实例在运行，本实例退出");
+            // 注意：这里必须用非阻塞的 show()，不能用 showAndWait()。
+            // showAndWait 在无交互桌面/远程会话下不会返回，进程会永久挂住
+            // （实测表现为"第二个实例还在跑但什么都不做"）。
+            // 因此再挂一个兜底定时器，无论如何 2.5 秒后强制退出。
+            javafx.animation.PauseTransition bail =
+                    new javafx.animation.PauseTransition(javafx.util.Duration.seconds(2.5));
+            bail.setOnFinished(e -> {
+                Log.w(TAG, "单实例兜底退出");
+                Platform.exit();
+                Runtime.getRuntime().halt(0);
+            });
+            bail.play();
+            try {
+                javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
+                        javafx.scene.control.Alert.AlertType.INFORMATION);
+                alert.setTitle("央视频直播");
+                alert.setHeaderText("程序已经在运行");
+                alert.setContentText("请切换到已打开的窗口。\n\n"
+                        + "如果看不到窗口，请在任务栏里找；"
+                        + "或者先结束残留的 YspLive 进程再重试。");
+                alert.show();
+            } catch (Throwable t) {
+                Log.w(TAG, "无法显示提示窗口: " + t);
+            }
+            return;
+        }
+
         this.config = DesktopConfig.load();
         this.engine = new EngineController(config);
 
@@ -158,7 +189,7 @@ public final class App extends Application {
         primaryStage.setMinHeight(600);
         primaryStage.setOnCloseRequest(e -> shutdown());
 
-        // 记住窗口尺寸（只在关闭时写一次，避免拖动时反复触发 listener 开销）
+        // 记住窗口尺寸与位置（关闭时统一保存，避免拖动过程中频繁写盘）
         primaryStage.widthProperty().addListener((o, a, b) -> {
             if (b != null && b.doubleValue() > 200) {
                 config.windowWidth = b.intValue();
@@ -170,7 +201,37 @@ public final class App extends Application {
             }
         });
 
+        // 恢复上次的位置与最大化状态，并确保窗口仍在可见屏幕内
+        // （防止拔掉外接显示器后窗口跑到屏幕外找不回来）
+        if (config.windowMaximized) {
+            primaryStage.setMaximized(true);
+        } else if (config.windowX >= 0 && config.windowY >= 0) {
+            javafx.geometry.Rectangle2D vis =
+                    javafx.stage.Screen.getPrimary().getVisualBounds();
+            double x = Math.max(vis.getMinX(),
+                    Math.min(config.windowX, vis.getMaxX() - 240));
+            double y = Math.max(vis.getMinY(),
+                    Math.min(config.windowY, vis.getMaxY() - 160));
+            primaryStage.setX(x);
+            primaryStage.setY(y);
+        }
+
         primaryStage.show();
+
+        // 位置变更后记录（限制频率：只在值真正变化时赋值，不写盘）
+        primaryStage.xProperty().addListener((o, a, b) -> {
+            if (!primaryStage.isMaximized() && !primaryStage.isIconified() && b != null) {
+                config.windowX = b.doubleValue();
+            }
+        });
+        primaryStage.yProperty().addListener((o, a, b) -> {
+            if (!primaryStage.isMaximized() && !primaryStage.isIconified() && b != null) {
+                config.windowY = b.doubleValue();
+            }
+        });
+        primaryStage.maximizedProperty().addListener((o, a, b) -> {
+            config.windowMaximized = b != null && b;
+        });
 
         chromiumPath = PlayerLauncher.findChromium();
         if (chromiumPath == null) {
@@ -733,6 +794,7 @@ public final class App extends Application {
             logoPool.shutdownNow();
         }
         LogFile.flush();
+        SingleInstance.release();
         Platform.exit();
     }
 
