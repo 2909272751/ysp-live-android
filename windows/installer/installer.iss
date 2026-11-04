@@ -10,7 +10,7 @@
 
 #define AppName "央视频直播"
 #define AppNameEn "YspLive"
-#define AppVersion "9.6.1"
+#define AppVersion "9.6.2"
 #define AppPublisher "Gary's Club"
 #define AppURL "https://github.com/2909272751/ysp-live-android"
 #define AppExeName "YspLive.exe"

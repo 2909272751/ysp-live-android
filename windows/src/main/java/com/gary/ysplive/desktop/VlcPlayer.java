@@ -13,6 +13,7 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSlider;
 import javax.swing.JWindow;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
@@ -1260,6 +1261,10 @@ final class VlcPlayer {
         private final EmbeddedMediaPlayer player;
         /** 记住最后有效音量（libVLC 起播前会返回 0）。 */
         private int lastVolume = 100;
+        /** 音量滑块（0..130），拖动即时生效。 */
+        private final JSlider volumeBar = new JSlider(0, 130, 100);
+        /** 用户正在拖滑块时不回写位置，否则会和手打架。 */
+        private volatile boolean volumeDragging;
 
         ControlBar(EmbeddedMediaPlayer player, DesktopConfig config,
                    Runnable onToggleSide, Runnable onFullScreen, Runnable onExit) {
@@ -1410,18 +1415,15 @@ final class VlcPlayer {
             });
             left.add(muteBtn);
 
-            left.add(flatButton("−", "音量 -", () -> {
-                player.audio().setVolume(Math.max(0, player.audio().volume() - 5));
-                refreshVolume();
-            }));
+            // 音量：滑块（拖动即时生效）+ 百分比。
+            // 之前只有 −/+ 两个按钮，每次 ±5%，要调到目标音量得点很多次，
+            // 和成熟播放器（VLC / PotPlayer / mpv）的连续滑块差距明显。
+            buildVolumeSlider(player);
+            left.add(volumeBar);
             volumeLabel.setForeground(new Color(200, 212, 226));
             volumeLabel.setFont(volumeLabel.getFont().deriveFont(12f));
-            volumeLabel.setPreferredSize(new Dimension(42, 18));
+            volumeLabel.setPreferredSize(new Dimension(38, 18));
             left.add(volumeLabel);
-            left.add(flatButton("＋", "音量 +", () -> {
-                player.audio().setVolume(Math.min(130, player.audio().volume() + 5));
-                refreshVolume();
-            }));
 
             channelName.setForeground(new Color(255, 255, 255));
             channelName.setFont(channelName.getFont().deriveFont(Font.BOLD, 14f));
@@ -1595,6 +1597,97 @@ final class VlcPlayer {
             }
         }
 
+        /**
+         * 初始化音量滑块。
+         *
+         * <p>成熟播放器（VLC / PotPlayer / mpv）的音量都是连续滑块，而不是
+         * 每次 ±5% 的两个按钮 —— 后者从一个极端调到另一个极端要点二十多次。
+         * 这里做成细轨道 + 小圆点的紧凑样式，并支持鼠标滚轮微调。
+         */
+        private void buildVolumeSlider(final EmbeddedMediaPlayer player) {
+            volumeBar.setUI(new SlimSliderUI(volumeBar));
+            volumeBar.setOpaque(false);
+            volumeBar.setFocusable(false);
+            volumeBar.setBorder(BorderFactory.createEmptyBorder());
+            volumeBar.setPreferredSize(new Dimension(92, 22));
+            volumeBar.setToolTipText("拖动调节音量（也可在画面上滚轮调节）");
+            volumeBar.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+            volumeBar.addChangeListener(e -> {
+                if (volumeBar.getValueIsAdjusting()) {
+                    volumeDragging = true;
+                }
+                int v = volumeBar.getValue();
+                try {
+                    player.audio().setVolume(v);
+                } catch (Throwable ignored) {
+                    // 忽略
+                }
+                volumeLabel.setText(v + "%");
+            });
+            volumeBar.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    volumeDragging = false;
+                    try {
+                        player.audio().setVolume(volumeBar.getValue());
+                    } catch (Throwable ignored) {
+                        // 忽略
+                    }
+                }
+            });
+            // 滚轮微调（每次 5%，落在滑块上时生效）
+            volumeBar.addMouseWheelListener(e -> {
+                int delta = e.getWheelRotation() < 0 ? 5 : -5;
+                int next = Math.max(0, Math.min(130, volumeBar.getValue() + delta));
+                volumeBar.setValue(next);
+            });
+        }
+
+        /** 细轨道、小圆点的滑块外观（默认 Metal 样式在深色控制条上很突兀）。 */
+        private static final class SlimSliderUI
+                extends javax.swing.plaf.basic.BasicSliderUI {
+            SlimSliderUI(JSlider b) {
+                super(b);
+            }
+
+            @Override
+            protected Dimension getThumbSize() {
+                return new Dimension(11, 11);
+            }
+
+            @Override
+            public void paintTrack(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                int cy = trackRect.y + trackRect.height / 2;
+                int h = 4;
+                g2.setColor(new Color(58, 66, 78));
+                g2.fillRoundRect(trackRect.x, cy - h / 2, trackRect.width, h, h, h);
+                // 已填充部分用品牌红，位置跟随当前值
+                int filled = (int) (trackRect.width * (slider.getValue() / 130.0));
+                g2.setColor(new Color(226, 47, 60));
+                g2.fillRoundRect(trackRect.x, cy - h / 2, Math.max(0, filled), h, h, h);
+                g2.dispose();
+            }
+
+            @Override
+            public void paintThumb(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(240, 244, 250));
+                g2.fillOval(thumbRect.x, thumbRect.y, thumbRect.width, thumbRect.height);
+                g2.dispose();
+            }
+
+            @Override
+            public void paintFocus(Graphics g) {
+                // 不需要焦点框
+            }
+        }
+
         void refreshVolume() {
             try {
                 int v = player.audio().volume();
@@ -1609,6 +1702,13 @@ final class VlcPlayer {
                     lastVolume = v;
                 }
                 volumeLabel.setText(mute ? "静音" : (v + "%"));
+                // 同步滑块位置（用户正在拖动时不要抢，否则手感会被拽回去）
+                if (!volumeDragging && v >= 0) {
+                    int clamped = Math.max(0, Math.min(130, v));
+                    if (volumeBar.getValue() != clamped) {
+                        volumeBar.setValue(clamped);
+                    }
+                }
             } catch (Throwable ignored) {
                 // 忽略
             }
