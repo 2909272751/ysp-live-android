@@ -35,7 +35,9 @@ public final class SnapshotCheck {
                 Thread worker = new Thread(() -> {
                     try {
                         // 等引擎与布局稳定，也让异步台标有机会加载
-                        Thread.sleep(9000L);
+                        // 台标走 4 线程池异步加载，给足时间让可见的十几张都下完。
+                        // 太短会拍到文字占位（看起来像"台标又坏了"，其实是还没加载完）。
+                        Thread.sleep(18000L);
                     } catch (InterruptedException ignored) {
                         // ignore
                     }

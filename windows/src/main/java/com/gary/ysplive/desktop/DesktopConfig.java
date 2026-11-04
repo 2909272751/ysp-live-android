@@ -33,6 +33,8 @@ final class DesktopConfig {
     String highBitrateMode = "all";     // all | only4k | off
     boolean autoStartEngine = true;
     boolean fullScreenPlayer = false;
+    /** 关闭主窗口时是否收进托盘继续后台播放。 */
+    boolean closeToTray = true;
     /** 播放器音量（0-130，libVLC 允许到 130%）。 */
     int playerVolume = 100;
     String lastChannel = "";
@@ -91,6 +93,7 @@ final class DesktopConfig {
         highBitrateMode = props.getProperty("engine.highBitrate", highBitrateMode);
         autoStartEngine = boolOf("app.autoStart", autoStartEngine);
         fullScreenPlayer = boolOf("player.fullscreen", fullScreenPlayer);
+        closeToTray = boolOf("app.closeToTray", closeToTray);
         playerVolume = intOf("player.volume", playerVolume);
         lastChannel = props.getProperty("ui.lastChannel", lastChannel);
         filter = props.getProperty("ui.filter", filter);
@@ -118,6 +121,7 @@ final class DesktopConfig {
         props.setProperty("engine.highBitrate", highBitrateMode == null ? "all" : highBitrateMode);
         props.setProperty("app.autoStart", String.valueOf(autoStartEngine));
         props.setProperty("player.fullscreen", String.valueOf(fullScreenPlayer));
+        props.setProperty("app.closeToTray", String.valueOf(closeToTray));
         props.setProperty("player.volume", String.valueOf(playerVolume));
         props.setProperty("ui.lastChannel", lastChannel == null ? "" : lastChannel);
         props.setProperty("ui.filter", filter == null ? "全部" : filter);

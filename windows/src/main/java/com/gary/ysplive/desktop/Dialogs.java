@@ -128,6 +128,9 @@ final class Dialogs {
         sb.append("配置目录：").append(DesktopConfig.dataDir()).append('\n');
         sb.append("日志文件：").append(LogFile.path() == null ? "未启用" : LogFile.path())
                 .append('\n');
+        sb.append("渲染管线：").append(RenderQuality.describe()).append('\n');
+        sb.append("开机自启：").append(AutoStart.isEnabled() ? "已启用" : "未启用").append('\n');
+        sb.append("系统托盘：").append(Tray.isSupported() ? "可用" : "不支持").append('\n');
         sb.append("Java：").append(System.getProperty("java.version"))
                 .append("  ").append(System.getProperty("java.vendor")).append('\n');
         sb.append("系统：").append(System.getProperty("os.name")).append(' ')
@@ -184,6 +187,8 @@ final class Dialogs {
     private ComboBox<String> highBitrateBox;
     private CheckBox autoStartBox;
     private CheckBox fullScreenBox;
+    private CheckBox autoRunBox;
+    private CheckBox closeToTrayBox;
 
     void showSettings() {
         Stage s = newWindow("设置", 640, 620);
@@ -236,6 +241,17 @@ final class Dialogs {
         fullScreenBox.setSelected(config.fullScreenPlayer);
         grid.add(fullScreenBox, 1, row++);
 
+        grid.add(new Label("开机自动启动"), 0, row);
+        autoRunBox = new CheckBox("登录 Windows 后自动打开（写入 HKCU\\...\\Run）");
+        autoRunBox.setSelected(AutoStart.isEnabled());
+        grid.add(autoRunBox, 1, row++);
+
+        grid.add(new Label("关闭窗口时"), 0, row);
+        closeToTrayBox = new CheckBox("最小化到系统托盘，继续后台播放");
+        closeToTrayBox.setSelected(config.closeToTray);
+        closeToTrayBox.setDisable(!Tray.isSupported());
+        grid.add(closeToTrayBox, 1, row++);
+
         Label note = new Label("修改「引擎参数」相关项后需要重启引擎才会生效。");
         note.getStyleClass().add("hint");
         note.setWrapText(true);
@@ -273,6 +289,16 @@ final class Dialogs {
             config.highBitrateMode = highBitrateBox.getValue();
             config.autoStartEngine = autoStartBox.isSelected();
             config.fullScreenPlayer = fullScreenBox.isSelected();
+            config.closeToTray = closeToTrayBox.isSelected();
+
+            // 开机自启直接写注册表（失败不阻塞保存其余设置）
+            boolean wantAutoRun = autoRunBox.isSelected();
+            if (wantAutoRun != AutoStart.isEnabled()) {
+                boolean ok = AutoStart.setEnabled(wantAutoRun);
+                if (!ok) {
+                    Log.w("dialogs", "开机自启设置失败");
+                }
+            }
             config.save();
 
             boolean engineChanged = oldPort != config.enginePort || oldLan != config.allowLan
