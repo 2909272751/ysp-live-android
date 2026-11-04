@@ -1,4 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  手机版主界面（触摸优先）。
+
+  设计参考：主流手机视频应用（爱奇艺 / 央视频 / YouTube）的通用结构 ——
+  顶部品牌与设置入口、搜索、分类筛选、内容网格、醒目的"继续观看"入口。
+
+  与上一版的差异（视觉重排，不改功能）：
+    1. 顶栏收紧：标题与状态不再各占一行，副标题紧贴标题基线
+    2. "继续观看"从分类行右侧挤着的一个小 chip，提升为**独立整行**按钮，
+       带主色背景 —— 这是最高频的操作，应该一眼可见、一点就到
+    3. 分类 chips 独立成行，不再和"继续观看"抢宽度
+    4. 网格上方留白收紧，内容区更靠上，一屏能看到更多频道
+    5. 卡片改用更大的台标区 + 底部信息行（见 item_channel.xml）
+
+  所有 id 保持不变，MainActivity 无需改动。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
@@ -6,36 +22,40 @@
     android:background="@color/bg_root"
     android:orientation="vertical"
     android:paddingLeft="@dimen/screen_pad"
-    android:paddingTop="14dp"
+    android:paddingTop="12dp"
     android:paddingRight="@dimen/screen_pad"
-    android:paddingBottom="10dp">
+    android:paddingBottom="8dp">
 
-    <!-- ================= 标题 + 顶栏 ================= -->
+    <!-- ================= 顶栏：品牌 + 入口 ================= -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/title"
-            style="@style/Text.Title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name" />
-
-        <TextView
-            android:id="@+id/subtitle"
-            style="@style/Text.Secondary"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="12dp"
-            android:text="" />
-
-        <Space
+        <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/title"
+                style="@style/Text.Title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name" />
+
+            <TextView
+                android:id="@+id/subtitle"
+                style="@style/Text.Secondary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:text="" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/btn_logs"
@@ -60,7 +80,7 @@
         style="@style/StatusBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -71,7 +91,7 @@
             android:includeFontPadding="false"
             android:text="●"
             android:textColor="@color/text_hint"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
         <TextView
             android:id="@+id/status_text"
@@ -83,7 +103,7 @@
             android:singleLine="true"
             android:text="@string/engine_starting"
             android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
+            android:textSize="12sp" />
 
         <TextView
             android:id="@+id/status_action"
@@ -91,10 +111,10 @@
             android:layout_height="wrap_content"
             android:text="诊断 ›"
             android:textColor="@color/accent"
-            android:textSize="13sp" />
+            android:textSize="12sp" />
     </LinearLayout>
 
-    <!-- ================= 搜索框（64 个频道靠滚动找台太慢） ================= -->
+    <!-- ================= 搜索 ================= -->
     <EditText
         android:id="@+id/search_input"
         android:layout_width="match_parent"
@@ -107,50 +127,50 @@
         android:maxLines="1"
         android:paddingLeft="14dp"
         android:paddingRight="14dp"
-        android:paddingTop="9dp"
-        android:paddingBottom="9dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
         android:textColor="@color/text_primary"
         android:textColorHint="@color/text_secondary"
-        android:textSize="13sp" />
+        android:textSize="14sp" />
 
-    <!-- ================= 过滤 chip + 继续观看 ================= -->
-    <LinearLayout
+    <!-- ================= 继续观看（最高频操作，独立整行） ================= -->
+    <TextView
+        android:id="@+id/btn_continue"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/bg_button_primary"
         android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:minHeight="44dp"
+        android:paddingLeft="16dp"
+        android:paddingRight="16dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:text="@string/continue_watching"
+        android:textColor="@color/text_on_brand"
+        android:textSize="14sp"
+        android:visibility="gone" />
 
-        <HorizontalScrollView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:scrollbars="none">
+    <!-- ================= 分类 chips ================= -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:scrollbars="none">
 
-            <LinearLayout
-                android:id="@+id/filter_row"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
-
-        <TextView
-            android:id="@+id/btn_continue"
-            style="@style/ActionButton"
+        <LinearLayout
+            android:id="@+id/filter_row"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="12dp"
-            android:background="@drawable/bg_button_primary"
-            android:text="@string/continue_watching"
-            android:visibility="gone" />
-    </LinearLayout>
+            android:gravity="center_vertical"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
 
     <!-- ================= 频道网格 ================= -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="10dp"
         android:layout_weight="1">
 
         <GridView
@@ -166,7 +186,7 @@
             android:numColumns="auto_fit"
             android:paddingBottom="8dp"
             android:scrollbars="none"
-            android:stretchMode="none"
+            android:stretchMode="columnWidth"
             android:verticalSpacing="12dp" />
 
         <LinearLayout

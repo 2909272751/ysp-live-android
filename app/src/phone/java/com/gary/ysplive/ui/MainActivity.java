@@ -399,7 +399,7 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
         ChannelSpec spec = lastWatchedSlug == null ? null : ChannelTable.bySlug(lastWatchedSlug);
         if (spec != null) {
             btnContinue.setVisibility(View.VISIBLE);
-            btnContinue.setText("继续观看 · " + spec.name);
+            btnContinue.setText("▶  继续观看 · " + spec.name);
         } else {
             lastWatchedSlug = null;
             btnContinue.setVisibility(View.GONE);

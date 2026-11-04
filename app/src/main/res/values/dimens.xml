@@ -2,8 +2,8 @@
 <resources>
     <dimen name="screen_pad">20dp</dimen>
     <dimen name="card_radius">10dp</dimen>
-    <dimen name="channel_card_width">168dp</dimen>
-    <dimen name="channel_card_height">118dp</dimen>
+    <dimen name="channel_card_width">150dp</dimen>
+    <dimen name="channel_card_height">132dp</dimen>
     <dimen name="channel_logo_size">72dp</dimen>
     <dimen name="focus_stroke">2dp</dimen>
 </resources>

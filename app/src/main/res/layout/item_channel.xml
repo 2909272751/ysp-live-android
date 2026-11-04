@@ -12,13 +12,13 @@
     android:clickable="true"
     android:focusable="true"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="12dp">
 
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:minHeight="52dp">
+        android:minHeight="64dp">
 
         <TextView
             android:id="@+id/channel_placeholder"
@@ -37,7 +37,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:contentDescription="@null"
-            android:padding="6dp"
+            android:padding="4dp"
             android:scaleType="fitCenter" />
     </FrameLayout>
 
@@ -45,11 +45,12 @@
         android:id="@+id/channel_name"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="7dp"
+        android:layout_marginTop="8dp"
         android:ellipsize="end"
         android:maxLines="1"
         android:textColor="@color/text_primary"
-        android:textSize="14sp" />
+        android:textSize="14sp"
+        android:textStyle="bold" />
 
     <LinearLayout
         android:layout_width="match_parent"
