@@ -230,6 +230,14 @@
     -fx-font-size: 10px;
 }
 
+/* 标称 4K/8K 但当前实际只有 1080p 时的标注：
+   用琥珀色明确区分，让用户知道这是降级状态而不是故障。 */
+.badge-degraded {
+    -fx-background-color: #3A2E14;
+    -fx-text-fill: #F0B840;
+    -fx-border-color: rgba(240, 184, 64, 0.45);
+}
+
 .channel-group {
     -fx-text-fill: #A7B4C6;
     -fx-font-size: 10px;

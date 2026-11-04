@@ -13,6 +13,7 @@ import android.widget.TextView;
 import com.gary.ysplive.R;
 import com.gary.ysplive.core.data.ChannelTable;
 import com.gary.ysplive.core.data.ChannelSpec;
+import com.gary.ysplive.core.data.QualityState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -118,8 +119,18 @@ final class ChannelAdapter extends BaseAdapter {
         TextView group = (TextView) view.findViewById(R.id.channel_group);
 
         name.setText(spec.name);
-        quality.setText(spec.defnLabel());
-        group.setText(ChannelTable.isTrue4k(spec.slug) ? "4K" : spec.group);
+        // 画质标注要如实：标称 4K/8K 的频道若实际走 1080p 回退，
+        // 不能继续显示「4K」误导用户（设备协议上游 app/start 目前恒返回 400，
+        // 真 4K 码流拿不到，详见 core 的 QualityState）。
+        String actualQuality = QualityState.actual(spec.slug);
+        boolean degraded = QualityState.isDegraded(spec.slug);
+        quality.setText(actualQuality != null ? actualQuality : spec.defnLabel());
+        group.setText(degraded ? "超高清·当前1080p"
+                : (ChannelTable.isTrue4k(spec.slug) ? "4K" : spec.group));
+        // 降级时用琥珀色提示，否则用主题默认的次要文字色
+        quality.setTextColor(degraded
+                ? 0xFFF0B840
+                : view.getResources().getColor(R.color.text_secondary, null));
         fav.setVisibility(AppPrefs.get(context).isFavorite(spec.slug)
                 ? View.VISIBLE : View.GONE);
 

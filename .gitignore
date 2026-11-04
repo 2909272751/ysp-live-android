@@ -103,3 +103,7 @@ windows/probe/vlc-out/
 # 验证过程产物
 windows/verify-*.png
 windows/verify-*.txt
+
+# Python 参考实现的运行期数据（仅本地对照用）
+_pydata/
+

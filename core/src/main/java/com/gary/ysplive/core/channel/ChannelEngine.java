@@ -795,6 +795,8 @@ public final class ChannelEngine {
                         if (Channel.SOURCE_BK.equals(prevSrc)) {
                             pl = Upstream.injectHlsDiscontinuity(pl);
                         }
+                        // 设备协议成功 = 真的拿到了高码率，界面可以如实标 4K
+                        com.gary.ysplive.core.data.QualityState.reportResolution(canonical, true);
                         return new PlaylistResult(200, pl, "application/vnd.apple.mpegurl", null);
                     }
                 } catch (Exception e) {
@@ -840,6 +842,9 @@ public final class ChannelEngine {
                 prevSrc = ch.lastM3u8Source();
                 ch.setM3u8Source(Channel.SOURCE_BK);
             }
+            // 走到这里说明走的是 bk 1080p 通道：
+            // 标称 4K/8K 的频道此时是降级播放，界面应如实显示而不是继续标 4K。
+            com.gary.ysplive.core.data.QualityState.reportResolution(canonical, false);
             if (Channel.SOURCE_DEVICE.equals(prevSrc)) {
                 pl = Upstream.injectHlsDiscontinuity(pl);
             }

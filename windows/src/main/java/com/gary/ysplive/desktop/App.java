@@ -432,10 +432,27 @@ public final class App extends Application {
         Label name = new Label(spec.name);
         name.getStyleClass().add("channel-name");
 
-        Label badge = new Label(ChannelTable.isTrue4k(spec.slug) ? "4K" : spec.defnLabel());
+        // 画质标注要如实：标称 4K/8K 的频道若实际走 1080p 回退，
+        // 不能继续显示「4K」误导用户（设备协议上游 app/start 目前恒返回 400，
+        // 真 4K 码流拿不到，详见 QualityState 注释）。
+        String actual = com.gary.ysplive.core.data.QualityState.actual(spec.slug);
+        boolean degraded = com.gary.ysplive.core.data.QualityState.isDegraded(spec.slug);
+        String badgeText;
+        if (actual != null) {
+            badgeText = actual;
+        } else if (ChannelTable.isTrue4k(spec.slug)) {
+            badgeText = "4K";
+        } else {
+            badgeText = spec.defnLabel();
+        }
+        Label badge = new Label(badgeText);
         badge.getStyleClass().add("badge");
+        if (degraded) {
+            badge.getStyleClass().add("badge-degraded");
+        }
 
-        Label group = new Label(ChannelTable.isTrue4k(spec.slug) ? "超高清" : spec.group);
+        Label group = new Label(degraded ? "超高清·当前1080p"
+                : (ChannelTable.isTrue4k(spec.slug) ? "超高清" : spec.group));
         group.getStyleClass().add("channel-group");
 
         Region spacer = new Region();
@@ -659,6 +676,10 @@ public final class App extends Application {
         setStatus("正在播放 " + spec.name, spec.defnLabel() + " · " + spec.group);
         updatePlayingHighlight();
 
+        // 拉一次播放列表，让引擎回报这个频道实际拿到的画质，
+        // 然后把该卡片的标注刷新成如实值（标称 4K 但走 1080p 时要显示 1080p）。
+        refreshQualityLater(spec);
+
         // 优先用内置 libVLC（真正自带播放器，无外部依赖）
         if (VlcPlayer.isAvailable()) {
             try {
@@ -744,6 +765,54 @@ public final class App extends Application {
         stage.toFront();
         stage.requestFocus();
         Log.i(TAG, "返回选台窗口");
+    }
+
+    /**
+     * 拉一次播放列表让引擎回报实际画质，然后在 UI 上刷新该卡片标注。
+     *
+     * <p>为什么必须这么做：频道表里 cctv4k/cctv8k/cctv164k 标称 4K/8K，
+     * 但设备协议上游 app/start 目前恒返回 400，实际只能走 bk 1080p 通道
+     * （用原作者 Python 版验证也是同样结果，属上游变更）。
+     * 不刷新就会出现「界面写 4K、实际放 1080p」的误导。
+     */
+    private void refreshQualityLater(ChannelSpec spec) {
+        Thread t = new Thread(() -> {
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                        new java.net.URL(engine.localOrigin() + "/" + spec.slug + ".m3u8")
+                                .openConnection(java.net.Proxy.NO_PROXY);
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(20000);
+                int code = c.getResponseCode();
+                try (java.io.InputStream in = c.getInputStream()) {
+                    byte[] buf = new byte[4096];
+                    while (in.read(buf) > 0) {
+                        // 读完即可，触发引擎回报 QualityState
+                    }
+                }
+                if (code != 200) {
+                    return;
+                }
+                Thread.sleep(600);
+                if (com.gary.ysplive.core.data.QualityState.actual(spec.slug) == null) {
+                    return;
+                }
+                Platform.runLater(() -> {
+                    // 卡片标注变了，重建可见区（虚拟化下只有十几张，代价很小）
+                    virtualGrid.rebuild();
+                    updatePlayingHighlight();
+                    String actual = com.gary.ysplive.core.data.QualityState.actual(spec.slug);
+                    if (com.gary.ysplive.core.data.QualityState.isDegraded(spec.slug)) {
+                        setStatus("正在播放 " + spec.name,
+                                "标称 4K/8K，当前实际 " + actual + "（高码率通道暂不可用）");
+                    }
+                });
+            } catch (Throwable ignored) {
+                // 画质探测失败不影响播放
+            }
+        }, "quality-" + spec.slug);
+        t.setDaemon(true);
+        t.start();
     }
 
     /** 托盘菜单「退出」：真正结束进程。 */
