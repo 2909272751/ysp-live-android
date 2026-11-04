@@ -69,7 +69,7 @@ public final class App extends Application {
      * 之前排查"看不到控制条"时无法确认用户装的是哪一版，浪费了很多时间。
      * 现在标题栏、诊断页都会显示这个版本号，一眼可辨。
      */
-    static final String VERSION = "9.5.6";
+    static final String VERSION = "9.5.7";
     private static final String[] FILTERS = {"全部", "央视", "卫视", "4K", "收藏"};
 
     private Stage stage;

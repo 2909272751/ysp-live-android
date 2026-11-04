@@ -43,6 +43,20 @@ final class DesktopConfig {
      * 想要沉浸观看的用户可在设置里打开，或按 F 全屏。
      */
     boolean playerAutoHideControls = false;
+
+    // ---------------- 播放器窗口 / 位置记忆 ----------------
+    /** 播放器窗口的位置与大小（-1 表示未记录，按屏幕居中）。 */
+    int playerWinX = -1;
+    int playerWinY = -1;
+    int playerWinWidth = 1280;
+    int playerWinHeight = 760;
+    /** 播放器侧边频道列表是否展开。 */
+    boolean playerSidePanelOpen = true;
+    /**
+     * 各频道的播放进度记忆（仅对可 seek 的流有意义，例如时移回看）。
+     * 格式：slug=毫秒，用分号分隔。
+     */
+    final java.util.Map<String, Long> playPositions = new java.util.LinkedHashMap<>();
     /** 关闭主窗口时是否收进托盘继续后台播放。 */
     boolean closeToTray = true;
     /**
@@ -90,14 +104,24 @@ final class DesktopConfig {
 
     /** 配置与数据目录：%APPDATA%\YspLive。 */
     static Path dataDir() {
-        String appData = System.getenv("APPDATA");
-        Path base;
-        if (appData != null && !appData.trim().isEmpty()) {
-            base = Paths.get(appData);
+        // 允许用系统属性覆盖配置目录。
+        // 自动化测试必须设置 -Dysp.datadir=<临时目录>，否则测试会读写
+        // 用户真实配置——曾因此把 engine.port 改成测试用的 18930，
+        // 导致真实启动时引擎不在 8767 上，验证脚本误判为"引擎没起来"。
+        String override = System.getProperty("ysp.datadir");
+        Path dir;
+        if (override != null && !override.trim().isEmpty()) {
+            dir = Paths.get(override.trim());
         } else {
-            base = Paths.get(System.getProperty("user.home"), ".config");
+            String appData = System.getenv("APPDATA");
+            Path base;
+            if (appData != null && !appData.trim().isEmpty()) {
+                base = Paths.get(appData);
+            } else {
+                base = Paths.get(System.getProperty("user.home"), ".config");
+            }
+            dir = base.resolve(DIR_NAME);
         }
-        Path dir = base.resolve(DIR_NAME);
         try {
             Files.createDirectories(dir);
         } catch (Exception e) {
@@ -116,6 +140,28 @@ final class DesktopConfig {
         autoStartEngine = boolOf("app.autoStart", autoStartEngine);
         fullScreenPlayer = boolOf("player.fullscreen", fullScreenPlayer);
         playerAutoHideControls = boolOf("player.autoHide", playerAutoHideControls);
+
+        // 播放器窗口位置与侧栏状态
+        playerWinX = intOf("player.winX", playerWinX);
+        playerWinY = intOf("player.winY", playerWinY);
+        playerWinWidth = intOf("player.winWidth", playerWinWidth);
+        playerWinHeight = intOf("player.winHeight", playerWinHeight);
+        playerSidePanelOpen = boolOf("player.sidePanel", playerSidePanelOpen);
+
+        // 各频道播放进度
+        playPositions.clear();
+        String pos = props.getProperty("player.positions", "");
+        for (String pair : pos.split(";")) {
+            String t = pair.trim();
+            int eq = t.indexOf('=');
+            if (eq > 0 && eq < t.length() - 1) {
+                try {
+                    playPositions.put(t.substring(0, eq), Long.parseLong(t.substring(eq + 1)));
+                } catch (NumberFormatException ignored) {
+                    // 跳过坏数据
+                }
+            }
+        }
         closeToTray = boolOf("app.closeToTray", closeToTray);
         autoStartWithWindows = boolOf("app.autoStartWithWindows", autoStartWithWindows);
         playerVolume = intOf("player.volume", playerVolume);
@@ -146,6 +192,21 @@ final class DesktopConfig {
         props.setProperty("app.autoStart", String.valueOf(autoStartEngine));
         props.setProperty("player.fullscreen", String.valueOf(fullScreenPlayer));
         props.setProperty("player.autoHide", String.valueOf(playerAutoHideControls));
+
+        props.setProperty("player.winX", String.valueOf(playerWinX));
+        props.setProperty("player.winY", String.valueOf(playerWinY));
+        props.setProperty("player.winWidth", String.valueOf(playerWinWidth));
+        props.setProperty("player.winHeight", String.valueOf(playerWinHeight));
+        props.setProperty("player.sidePanel", String.valueOf(playerSidePanelOpen));
+
+        StringBuilder pos = new StringBuilder();
+        for (java.util.Map.Entry<String, Long> e : playPositions.entrySet()) {
+            if (pos.length() > 0) {
+                pos.append(';');
+            }
+            pos.append(e.getKey()).append('=').append(e.getValue());
+        }
+        props.setProperty("player.positions", pos.toString());
         props.setProperty("app.closeToTray", String.valueOf(closeToTray));
         props.setProperty("app.autoStartWithWindows", String.valueOf(autoStartWithWindows));
         props.setProperty("player.volume", String.valueOf(playerVolume));

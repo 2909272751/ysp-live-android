@@ -1,4 +1,4 @@
-# Full verification of the performance/interaction build.
+﻿# Full verification of the performance/interaction build.
 # ASCII only.
 
 # 自动取 release 目录里最新的安装包，避免版本号变更后测试失效
@@ -55,7 +55,7 @@ Write-Host ""
 Write-Host "########## 4. PLAYER E2E (bundled libVLC) ##########"
 $e2e = 'C:\1\ysp-android\windows\verify-e2e.txt'
 Remove-Item $e2e -Force -ErrorAction SilentlyContinue
-$a2 = @('-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8',
+$a2 = @('-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8','-Dysp.datadir=C:\1\ysp-android\_verifydata',
         '-cp', "$installDir\app\YspLive-Desktop.jar",
         'com.gary.ysplive.desktop.E2EPlayCheck','cctv6',$e2e)
 $null = & "$env:JAVA_HOME\bin\java.exe" @a2 2>&1
@@ -71,7 +71,7 @@ Write-Host "########## 5. PLAYER UI STRUCTURE ##########"
 $uidump = 'C:\1\ysp-android\windows\verify-ui.txt'
 $uipng = 'C:\1\ysp-android\windows\verify-player-ui.png'
 Remove-Item $uidump,$uipng -Force -ErrorAction SilentlyContinue
-$a3 = @('-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8',
+$a3 = @('-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8','-Dysp.datadir=C:\1\ysp-android\_verifydata',
         '-cp', "$installDir\app\YspLive-Desktop.jar",
         'com.gary.ysplive.desktop.PlayerShowcase','cctv6','12',$uipng,$uidump)
 $null = & "$env:JAVA_HOME\bin\java.exe" @a3 2>&1
@@ -86,7 +86,7 @@ Write-Host ""
 Write-Host "########## 6. UI SNAPSHOT ##########"
 $snap = 'C:\1\ysp-android\docs\ui-windows.png'
 Remove-Item $snap -Force -ErrorAction SilentlyContinue
-$a4 = @('-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8',
+$a4 = @('-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8','-Dysp.datadir=C:\1\ysp-android\_verifydata',
         '-cp', "$installDir\app\YspLive-Desktop.jar",
         'com.gary.ysplive.desktop.SnapshotCheck',$snap)
 $null = & "$env:JAVA_HOME\bin\java.exe" @a4 2>&1

@@ -92,6 +92,10 @@ final class VlcPlayer {
 
         /** 全局鼠标监听器，释放时必须注销，否则会泄漏并拖慢事件分发。 */
         java.awt.event.AWTEventListener globalMouseListener;
+        /** 当前播放的频道 slug（用于保存播放进度）。 */
+        volatile String currentSlug;
+        /** 配置引用，供 release() 时保存窗口几何。 */
+        DesktopConfig config;
 
         /** 供截图与自动化测试使用：停掉自动隐藏并强制显示控制条。 */
         void pinControls() {
@@ -119,6 +123,9 @@ final class VlcPlayer {
                 return;
             }
             released = true;
+            // 必须在 dispose 之前保存：dispose 之后 isShowing() 变成 false，
+            // 窗口几何就读不到了（曾因此导致位置记忆失效）。
+            savePlayerState(this, config);
             try {
                 player.controls().stop();
             } catch (Throwable ignored) {
@@ -239,6 +246,8 @@ final class VlcPlayer {
         player.videoSurface().set(factory.videoSurfaces().newVideoSurface(canvas));
 
         final Window window = new Window(frame, player, factory);
+        window.currentSlug = initial.slug;
+        window.config = config;
 
         // ---------------- 界面组装 ----------------
         //
@@ -330,11 +339,23 @@ final class VlcPlayer {
         // 因为 SidePanel 构造时 player 已存在但 currentMrl 在后面才声明。
         final java.util.concurrent.atomic.AtomicReference<String> switchPrefixRef =
                 new java.util.concurrent.atomic.AtomicReference<>("");
+        // 先推导流地址前缀（形如 http://127.0.0.1:8767），
+        // 侧栏的「复制链接」与换台逻辑都要用到，必须在使用前就绪。
+        try {
+            int cut = mrl.lastIndexOf('/');
+            if (cut > 0) {
+                switchPrefixRef.set(mrl.substring(0, cut));
+            }
+        } catch (RuntimeException ignored) {
+            // 推导失败则换台只更新界面（降级但不崩）
+        }
+
         final SidePanel side = new SidePanel(channels, initial, spec -> {
             if (onSwitch != null) {
                 onSwitch.onSwitch(spec);
             }
             frame.setTitle("央视频直播 v" + App.VERSION + " · " + spec.name);
+            window.currentSlug = spec.slug;
             if (sideRef[0] != null) {
                 sideRef[0].setActive(spec.slug);
             }
@@ -349,17 +370,13 @@ final class VlcPlayer {
                 player.media().play(newMrl);
             }
             osd.show("换台  " + spec.name);
+        }, config, spec -> {
+            // 供「复制播放链接」使用：优先拼出可直接播放的本地地址
+            String p = switchPrefixRef.get();
+            String url = p.isEmpty() ? (spec.slug + ".m3u8") : (p + "/" + spec.slug + ".m3u8");
+            return url;
         });
         sideRef[0] = side;
-        // 从初始流地址推导前缀（形如 http://127.0.0.1:8767）
-        try {
-            int cut = mrl.lastIndexOf('/');
-            if (cut > 0) {
-                switchPrefixRef.set(mrl.substring(0, cut));
-            }
-        } catch (RuntimeException ignored) {
-            // 推导失败则换台只更新界面（降级但不崩）
-        }
 
         // 底部控制条
         final ControlBar bar = new ControlBar(player, config,
@@ -603,18 +620,34 @@ final class VlcPlayer {
             frame.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent e) {
+                    savePlayerState(window, config);
                     window.release();
                     if (onExit != null) {
                         onExit.onExit();
                     }
+                }
+
+                @Override
+                public void windowClosing(java.awt.event.WindowEvent e) {
+                    // 关闭前先记住位置/进度，避免 dispose 之后读不到
+                    savePlayerState(window, config);
                 }
             });
             if (config.fullScreenPlayer) {
                 frame.setUndecorated(true);
                 frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
             } else {
-                frame.setSize(1280, 760);
-                frame.setLocationRelativeTo(null);
+                // 完整位置记忆：恢复上次播放器窗口的位置与大小；
+                // 首次运行或数据不合法时退回居中 1280x760。
+                int w = config.playerWinWidth > 320 ? config.playerWinWidth : 1280;
+                int h = config.playerWinHeight > 240 ? config.playerWinHeight : 760;
+                frame.setSize(w, h);
+                if (config.playerWinX >= 0 && config.playerWinY >= 0
+                        && isOnScreen(config.playerWinX, config.playerWinY, w, h)) {
+                    frame.setLocation(config.playerWinX, config.playerWinY);
+                } else {
+                    frame.setLocationRelativeTo(null);
+                }
             }
             frame.setVisible(true);
             canvas.requestFocusInWindow();
@@ -730,6 +763,86 @@ final class VlcPlayer {
      * 全屏时自动隐藏鼠标指针（仿成熟播放器：鼠标静止后指针消失，一动就出现）。
      * 用透明光标实现，不需要改组件层级。
      */
+    /**
+     * 保存播放器状态（完整位置记忆）：
+     * 窗口位置与大小、当前频道、音量、以及该频道的播放进度。
+     */
+    private static void savePlayerState(Window window, DesktopConfig config) {
+        if (window == null || config == null || window.frame == null) {
+            return;
+        }
+        try {
+            JFrame f = window.frame;
+            // 注意：这里不能用 f.isShowing() 判断——
+            // 程序化 release() 时先保存再 dispose，此时窗口可能已不可见。
+            // 只要窗口还被显示过（isDisplayable）并且不是全屏，就去读 bounds。
+            if (!f.isUndecorated() && f.isDisplayable()) {
+                int state = f.getExtendedState();
+                if ((state & JFrame.MAXIMIZED_BOTH) == 0) {
+                    java.awt.Rectangle b = f.getBounds();
+                    if (b.width > 320 && b.height > 240) {
+                        config.playerWinX = b.x;
+                        config.playerWinY = b.y;
+                        config.playerWinWidth = b.width;
+                        config.playerWinHeight = b.height;
+                    }
+                }
+            }
+            // 音量
+            try {
+                int v = window.player.audio().volume();
+                if (v > 0) {
+                    config.playerVolume = v;
+                }
+            } catch (Throwable ignored) {
+                // 忽略
+            }
+            // 当前频道的播放进度（仅对可 seek 的流有意义）
+            try {
+                long len = window.player.status().length();
+                long time = window.player.status().time();
+                String slug = window.currentSlug;
+                if (slug != null && !slug.isEmpty() && len > 0 && time > 0) {
+                    config.playPositions.put(slug, time);
+                    // 只保留最近 200 条，防止配置文件无限增长
+                    while (config.playPositions.size() > 200) {
+                        java.util.Iterator<String> it =
+                                config.playPositions.keySet().iterator();
+                        if (it.hasNext()) {
+                            it.next();
+                            it.remove();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+                // 忽略
+            }
+            config.save();
+            Log.i(TAG, "已保存播放器状态");
+        } catch (Throwable t) {
+            Log.w(TAG, "保存播放器状态失败: " + t);
+        }
+    }
+
+    /** 判断给定位置是否落在某个屏幕内（防止拔掉外接屏后窗口跑到看不见的地方）。 */
+    private static boolean isOnScreen(int x, int y, int w, int h) {
+        try {
+            java.awt.Rectangle target = new java.awt.Rectangle(x, y, w, h);
+            for (java.awt.GraphicsDevice gd : java.awt.GraphicsEnvironment
+                    .getLocalGraphicsEnvironment().getScreenDevices()) {
+                java.awt.Rectangle bounds = gd.getDefaultConfiguration().getBounds();
+                if (bounds.intersects(target)) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 探测失败就当不在屏内，走居中
+        }
+        return false;
+    }
+
     private static void setCursorVisible(JFrame frame, boolean visible) {
         try {
             if (visible) {
@@ -797,14 +910,20 @@ final class VlcPlayer {
         private final Consumer<ChannelSpec> onPick;
         private final JPanel list;
         private final java.util.Map<String, JPanel> rows = new java.util.HashMap<>();
+        private final DesktopConfig config;
+        /** 由 slug 生成可分享的播放地址（形如 http://127.0.0.1:8767/cctv1.m3u8）。 */
+        private final java.util.function.Function<ChannelSpec, String> urlBuilder;
         private String activeSlug;
         private boolean open;
 
         SidePanel(List<ChannelSpec> channels, ChannelSpec initial,
-                  Consumer<ChannelSpec> onPick) {
+                  Consumer<ChannelSpec> onPick, DesktopConfig config,
+                  java.util.function.Function<ChannelSpec, String> urlBuilder) {
             super(new BorderLayout());
             this.channels = channels;
             this.onPick = onPick;
+            this.config = config;
+            this.urlBuilder = urlBuilder;
             this.activeSlug = initial.slug;
 
             setBackground(new Color(14, 19, 27));
@@ -815,6 +934,7 @@ final class VlcPlayer {
             title.setForeground(new Color(240, 244, 250));
             title.setFont(title.getFont().deriveFont(Font.BOLD, 14f));
             title.setBorder(BorderFactory.createEmptyBorder(14, 16, 10, 16));
+            title.setToolTipText("右键频道可收藏 / 复制链接");
             add(title, BorderLayout.NORTH);
 
             list = new JPanel();
@@ -835,11 +955,9 @@ final class VlcPlayer {
             add(sp, BorderLayout.CENTER);
 
             setActive(initial.slug);
-            // 默认**展开**：用户反馈"侧边栏一播放就没有"，说明默认隐藏不合理。
-            // 成熟播放器（PotPlayer 播放列表、VLC 播放列表）默认都是可见的，
-            // 用户可以按 Tab 或点控制条的 ☰ 收起。
-            setVisible(true);
-            open = true;
+            // 记住用户上次是否展开（完整位置记忆的一部分）
+            open = config == null || config.playerSidePanelOpen;
+            setVisible(open);
         }
 
         private JPanel buildRow(int num, ChannelSpec spec) {
@@ -858,8 +976,73 @@ final class VlcPlayer {
             nameLabel.setForeground(new Color(214, 222, 233));
             nameLabel.setFont(nameLabel.getFont().deriveFont(13f));
 
+            // 收藏标记（★），收藏状态变化时刷新
+            JLabel favLabel = new JLabel("");
+            favLabel.setForeground(new Color(255, 194, 77));
+            favLabel.setFont(favLabel.getFont().deriveFont(Font.BOLD, 12f));
+            favLabel.setPreferredSize(new Dimension(16, 16));
+            refreshFav(favLabel, spec);
+
             row.add(numLabel, BorderLayout.WEST);
             row.add(nameLabel, BorderLayout.CENTER);
+            row.add(favLabel, BorderLayout.EAST);
+
+            // 右键菜单：收藏/取消收藏、复制链接、播放
+            final javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+            final javax.swing.JMenuItem favItem = new javax.swing.JMenuItem();
+            final javax.swing.JMenuItem copyItem =
+                    new javax.swing.JMenuItem("复制播放链接");
+            final javax.swing.JMenuItem playItem =
+                    new javax.swing.JMenuItem("播放此频道");
+            menu.add(favItem);
+            menu.add(playItem);
+            menu.addSeparator();
+            menu.add(copyItem);
+
+            // 每次弹出前刷新菜单文案（收藏状态可能已变）
+            menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+                @Override
+                public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                    boolean fav = config != null && config.isFavorite(spec.slug);
+                    favItem.setText(fav ? "取消收藏" : "收藏此频道");
+                }
+
+                @Override
+                public void popupMenuWillBecomeInvisible(
+                        javax.swing.event.PopupMenuEvent e) {
+                    // 无需处理
+                }
+
+                @Override
+                public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+                    // 无需处理
+                }
+            });
+
+            favItem.addActionListener(e -> {
+                if (config == null) {
+                    return;
+                }
+                boolean added = config.toggleFavorite(spec.slug);
+                refreshFav(favLabel, spec);
+                Log.i(TAG, (added ? "已收藏 " : "已取消收藏 ") + spec.name);
+            });
+
+            playItem.addActionListener(e -> onPick.accept(spec));
+
+            copyItem.addActionListener(e -> {
+                String url = urlBuilder == null ? spec.slug : urlBuilder.apply(spec);
+                try {
+                    java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                            new java.awt.datatransfer.StringSelection(url), null);
+                    // 给用户一个明确反馈，否则不知道复制成功没
+                    javax.swing.JOptionPane.showMessageDialog(row,
+                            "已复制到剪贴板：\n" + url,
+                            "复制播放链接", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+                } catch (Throwable t) {
+                    Log.w(TAG, "复制链接失败: " + t);
+                }
+            });
 
             row.addMouseListener(new MouseAdapter() {
                 @Override
@@ -877,11 +1060,38 @@ final class VlcPlayer {
                 }
 
                 @Override
+                public void mousePressed(MouseEvent e) {
+                    maybePopup(e);
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    maybePopup(e);
+                }
+
+                /** 右键弹出菜单；左键单击换台。 */
+                private void maybePopup(MouseEvent e) {
+                    if (e.isPopupTrigger()) {
+                        menu.show(e.getComponent(), e.getX(), e.getY());
+                    }
+                }
+
+                @Override
                 public void mouseClicked(MouseEvent e) {
-                    onPick.accept(spec);
+                    // 只有左键才是换台，右键走菜单
+                    if (javax.swing.SwingUtilities.isLeftMouseButton(e)) {
+                        onPick.accept(spec);
+                    }
                 }
             });
             return row;
+        }
+
+        /** 刷新某行的收藏星标。 */
+        private void refreshFav(JLabel favLabel, ChannelSpec spec) {
+            boolean fav = config != null && config.isFavorite(spec.slug);
+            favLabel.setText(fav ? "★" : "");
+            favLabel.setToolTipText(fav ? "已收藏" : null);
         }
 
         void setActive(String slug) {
@@ -914,6 +1124,10 @@ final class VlcPlayer {
         void toggle() {
             open = !open;
             setVisible(open);
+            // 记住侧栏状态（完整位置记忆的一部分）
+            if (config != null) {
+                config.playerSidePanelOpen = open;
+            }
             revalidate();
             repaint();
         }
@@ -1145,18 +1359,142 @@ final class VlcPlayer {
             add(left, BorderLayout.WEST);
             add(right, BorderLayout.EAST);
 
+            // ---------------- 进度条（可拖动） ----------------
+            //
+            // 直播流通常 length()=0（无已知时长），此时进度条显示「直播」并禁用拖动。
+            // 时移回看 / 已缓冲的 HLS 窗口里 length()>0 且 isSeekable()=true，
+            // 这时允许拖动跳到指定位置。
+            add(buildSeekRow(), BorderLayout.NORTH);
+
             refreshPlayButton();
             refreshVolume();
 
-            // 定时刷新按钮图标，覆盖"用快捷键切换播放状态"的场景
-            Timer sync = new Timer(500, e -> {
+            // 定时刷新按钮图标与进度，覆盖"用快捷键切换播放状态"的场景。
+            // 拖动过程中不更新滑块，否则会和用户的手打架。
+            Timer sync = new Timer(400, e -> {
                 refreshPlayButton();
                 if (isShowing()) {
                     refreshVolume();
+                    refreshSeek();
                 }
             });
             sync.setRepeats(true);
             sync.start();
+        }
+
+        // ---------------- 进度条实现 ----------------
+
+        private final javax.swing.JSlider seekBar = new javax.swing.JSlider(0, 1000, 0);
+        private final JLabel timeLabel = new JLabel("00:00");
+        private final JLabel totalLabel = new JLabel("直播");
+        private volatile boolean userDragging;
+        /** 上一次已知的可 seek 时长（毫秒），0 表示不可 seek。 */
+        private volatile long knownLengthMs;
+
+        private JPanel buildSeekRow() {
+            JPanel row = new JPanel(new BorderLayout(8, 0));
+            row.setOpaque(false);
+            row.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+
+            styleTimeLabel(timeLabel);
+            styleTimeLabel(totalLabel);
+
+            seekBar.setOpaque(false);
+            seekBar.setFocusable(false);
+            seekBar.setBorder(BorderFactory.createEmptyBorder());
+            seekBar.setEnabled(false);
+            seekBar.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            seekBar.setToolTipText("拖动可跳转（直播流通常不可拖动）");
+
+            // 拖动开始时先冻结自动刷新，松手才真正 seek
+            seekBar.addChangeListener(e -> {
+                if (seekBar.getValueIsAdjusting()) {
+                    userDragging = true;
+                    // 拖动时实时更新时间文字，给用户预览
+                    long len = knownLengthMs;
+                    if (len > 0) {
+                        long target = (long) (len * (seekBar.getValue() / 1000.0));
+                        timeLabel.setText(formatMs(target));
+                    }
+                }
+            });
+            seekBar.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    userDragging = false;
+                    long len = knownLengthMs;
+                    if (len > 0) {
+                        long target = (long) (len * (seekBar.getValue() / 1000.0));
+                        try {
+                            player.controls().setTime(target);
+                            Log.i(TAG, "进度跳转到 " + formatMs(target));
+                        } catch (Throwable t) {
+                            Log.w(TAG, "进度跳转失败: " + t);
+                        }
+                    }
+                }
+            });
+
+            row.add(timeLabel, BorderLayout.WEST);
+            row.add(seekBar, BorderLayout.CENTER);
+            row.add(totalLabel, BorderLayout.EAST);
+            return row;
+        }
+
+        private static void styleTimeLabel(JLabel l) {
+            l.setForeground(new Color(170, 182, 198));
+            l.setFont(l.getFont().deriveFont(11f));
+            l.setPreferredSize(new Dimension(46, 14));
+        }
+
+        /** 刷新进度显示。 */
+        void refreshSeek() {
+            try {
+                long length = player.status().length();
+                long time = player.status().time();
+                boolean seekable = player.status().isSeekable();
+
+                // 直播流 length 常为 0；此时明确显示「直播」而不是误导性的空进度条
+                if (length <= 0) {
+                    knownLengthMs = 0;
+                    seekBar.setEnabled(false);
+                    seekBar.setValue(0);
+                    timeLabel.setText(formatMs(Math.max(0, time)));
+                    totalLabel.setText("直播");
+                    return;
+                }
+
+                knownLengthMs = length;
+                // 可 seek 才允许拖动
+                if (seekBar.isEnabled() != seekable) {
+                    seekBar.setEnabled(seekable);
+                    seekBar.setToolTipText(seekable
+                            ? "拖动可跳转" : "当前流不支持跳转");
+                }
+                totalLabel.setText(formatMs(length));
+                if (!userDragging) {
+                    timeLabel.setText(formatMs(Math.max(0, time)));
+                    int v = (int) Math.round(1000.0 * time / Math.max(1, length));
+                    seekBar.setValue(Math.max(0, Math.min(1000, v)));
+                }
+            } catch (Throwable ignored) {
+                // 状态读取失败保持原样
+            }
+        }
+
+        /** 毫秒 -> mm:ss 或 h:mm:ss。 */
+        static String formatMs(long ms) {
+            if (ms < 0) {
+                ms = 0;
+            }
+            long totalSec = ms / 1000;
+            long h = totalSec / 3600;
+            long m = (totalSec % 3600) / 60;
+            long s = totalSec % 60;
+            if (h > 0) {
+                return String.format(java.util.Locale.ROOT, "%d:%02d:%02d", h, m, s);
+            }
+            return String.format(java.util.Locale.ROOT, "%02d:%02d", m, s);
         }
 
         void refreshPlayButton() {
