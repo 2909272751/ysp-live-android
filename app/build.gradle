@@ -18,8 +18,8 @@ android {
         applicationId 'com.gary.ysplive'
         minSdk 21
         targetSdk 34
-        versionCode 906
-        versionName '9.5.1'
+        versionCode 907
+        versionName '9.5.2'
         resourceConfigurations += ['zh', 'en']
     }
 
@@ -72,9 +72,16 @@ android {
         checkReleaseBuilds false
     }
 
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            returnDefaultValues = true
+        }
+    }
+
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            def name = variant.name == 'release' ? 'YspLive-v9.5.1' : 'YspLive-v9.5.1-debug'
+            def name = variant.name == 'release' ? 'YspLive-v9.5.2' : 'YspLive-v9.5.2-debug'
             outputFileName = "${name}.apk"
         }
     }
@@ -87,4 +94,9 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
     implementation 'androidx.media3:media3-ui:1.4.1'
     testImplementation 'junit:junit:4.13.2'
+    // Robolectric：在桌面 JVM 上真实实例化 Activity / 布局 / 触摸事件，
+    // 用来给「点击是否生效」这类只能真机发现的问题兜底。
+    testImplementation 'org.robolectric:robolectric:4.13'
+    testImplementation 'androidx.test:core:1.5.0'
+    testImplementation 'androidx.test.ext:junit:1.1.5'
 }

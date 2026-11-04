@@ -82,31 +82,26 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
         emptyText = (TextView) findViewById(R.id.empty_text);
 
         adapter = new ChannelAdapter(this);
-        grid.setAdapter(adapter);
-
-        grid.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
+        // 点击/长按走 adapter 里绑在条目上的监听，而不是依赖 AdapterView.onItemClick：
+        // 后者的触摸分发在部分 ROM / 存在 focusable 子项时会不触发（v9.5.0 的点击失效根因）。
+        adapter.setOnChannelClickListener(new ChannelAdapter.OnChannelClickListener() {
             @Override
-            public void onItemClick(android.widget.AdapterView<?> parent, View view, int position,
-                                    long id) {
-                ChannelSpec spec = adapter.getItem(position);
-                if (spec != null) {
-                    openPlayer(spec);
-                }
+            public void onChannelClick(ChannelSpec spec) {
+                openPlayer(spec);
             }
         });
-        grid.setOnItemLongClickListener(
-                new android.widget.AdapterView.OnItemLongClickListener() {
-                    @Override
-                    public boolean onItemLongClick(android.widget.AdapterView<?> parent,
-                                                   View view, int position, long id) {
-                        ChannelSpec spec = adapter.getItem(position);
-                        if (spec == null) {
-                            return false;
-                        }
-                        toggleFavorite(spec);
-                        return true;
-                    }
-                });
+        adapter.setOnChannelLongClickListener(new ChannelAdapter.OnChannelLongClickListener() {
+            @Override
+            public boolean onChannelLongClick(ChannelSpec spec) {
+                toggleFavorite(spec);
+                return true;
+            }
+        });
+        grid.setAdapter(adapter);
+
+        // 注意：不再使用 grid.setOnItemClickListener / setOnItemLongClickListener。
+        // AdapterView 的点击分发在部分 ROM（以及视图树中存在 focusable 子项时）不触发，
+        // 这正是 v9.5.0「点频道没反应」的根因；点击统一由 ChannelAdapter 绑在条目上。
 
         buildChips();
 

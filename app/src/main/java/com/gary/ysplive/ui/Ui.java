@@ -53,24 +53,39 @@ final class Ui {
     /**
      * 造一个 filter chip。
      * <p><b>不要</b>调 {@code setFocusableInTouchMode(true)}：那会让 {@code View.onTouchEvent}
-     * 在首次点击时只 {@code requestFocus()} 而<b>不</b> {@code performClick()}，
-     * 手机上表现为「点一下没反应、要点两下」，电视上因为焦点已在控件上所以看不出问题。
-     * 这里只保留 {@code setFocusable(true)}——它在触屏模式下照样能点击，且能被 D-pad 聚焦。
+     * 在首次点击时只 {@code requestFocus()} 而<b>不</b> {@code performClick()}。
+     * <p><b>宽度必须显式测量</b>：chip 是放进 {@code HorizontalScrollView} 的，滚动容器在
+     * 未给定子视图宽度时会把它压到接近 0（实测 5 个 chip 全被压成 34px 宽，
+     * 文字放不下、点击热区极小且互相重叠，表现为「点了没反应」）。
+     * 这里用 {@link View#measure} 按文字实际宽度算出 WRAP_CONTENT 尺寸，
+     * 再写死成具体像素，确保每个 chip 都有足够的可点击区域。
      */
     static TextView makeChip(Context ctx, String text, View.OnClickListener click) {
         TextView chip = new TextView(ctx);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.rightMargin = dp(ctx, 8);
-        chip.setLayoutParams(lp);
         chip.setText(text);
         chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(ctx, 16), dp(ctx, 8), dp(ctx, 16), dp(ctx, 8));
+        int padH = dp(ctx, 16);
+        int padV = dp(ctx, 8);
+        chip.setPadding(padH, padV, padH, padV);
         chip.setBackgroundResource(R.drawable.bg_chip);
         chip.setTextColor(ctx.getResources().getColorStateList(R.color.chip_text));
         chip.setFocusable(true);
         chip.setClickable(true);
+        chip.setSingleLine(true);
+
+        // 先按内容测量出真实尺寸，再把它固定下来，避免被滚动容器压扁。
+        chip.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int w = Math.max(chip.getMeasuredWidth(), dp(ctx, 56));
+        int h = Math.max(chip.getMeasuredHeight(), dp(ctx, 36));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
+        lp.rightMargin = dp(ctx, 8);
+        chip.setLayoutParams(lp);
+        chip.setMinWidth(w);
+        chip.setMinHeight(h);
+
         if (click != null) {
             chip.setOnClickListener(click);
         }

@@ -59,6 +59,13 @@
     </style>
 
     <!-- ============ 控件 ============ -->
+    <!--
+      重要：本文件里所有可点击控件都不能带 android:focusableInTouchMode="true"。
+      该属性会让 View.onTouchEvent 在首次点击时只 requestFocus() 而不 performClick()，
+      手机上表现为「第一次点击被吞掉、必须点两下」，电视上因焦点已在控件上而看不出来。
+      另外 android:clickable="true" 只能出现在「自己绑了 OnClickListener」的控件上；
+      列表条目的根布局必须保持 clickable=false，否则会吃掉 AdapterView.onItemClick。
+    -->
     <style name="Chip">
         <item name="android:background">@drawable/bg_chip</item>
         <item name="android:paddingLeft">16dp</item>
@@ -69,7 +76,6 @@
         <item name="android:textSize">14sp</item>
         <item name="android:gravity">center</item>
         <item name="android:focusable">true</item>
-        <item name="android:focusableInTouchMode">true</item>
         <item name="android:clickable">true</item>
     </style>
 
@@ -83,7 +89,6 @@
         <item name="android:textSize">15sp</item>
         <item name="android:gravity">center</item>
         <item name="android:focusable">true</item>
-        <item name="android:focusableInTouchMode">true</item>
         <item name="android:minWidth">0dp</item>
         <item name="android:minHeight">0dp</item>
         <item name="android:stateListAnimator">@null</item>
@@ -96,7 +101,6 @@
         <item name="android:paddingTop">9dp</item>
         <item name="android:paddingBottom">9dp</item>
         <item name="android:focusable">true</item>
-        <item name="android:focusableInTouchMode">true</item>
         <item name="android:clickable">true</item>
     </style>
 

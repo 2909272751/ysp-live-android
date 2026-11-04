@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 视图上挂业务对象用的 tag key，集中声明避免各处魔法数字 -->
+    <item name="tag_channel_spec" type="id" />
+    <item name="tag_logo_url" type="id" />
+</resources>

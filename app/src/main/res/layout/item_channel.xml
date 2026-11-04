@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  条目根布局：clickable 由 ChannelAdapter 在代码里按是否绑了监听动态设置，
+  click 监听也由 adapter 直接绑在本视图上（不依赖 GridView.onItemClick——
+  那条分发路径在部分 ROM 上不触发，是 v9.5.0 点击失效的根因）。
+  这里只保留 focusable 供遥控器 D-pad 聚焦。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="@dimen/channel_card_width"
     android:layout_height="@dimen/channel_card_height"
     android:background="@drawable/bg_card"
+    android:clickable="true"
     android:focusable="true"
     android:orientation="vertical"
     android:padding="10dp">
@@ -10,7 +17,8 @@
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:minHeight="52dp">
 
         <TextView
             android:id="@+id/channel_placeholder"

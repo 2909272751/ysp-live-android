@@ -21,8 +21,25 @@ import java.util.List;
  * 频道网格适配器。
  * <p>每个条目：台标（异步加载，失败时用「首字 + 彩色圆角块」占位）、频道名、清晰度徽章、收藏星标。
  * <p>条目自身 focusable，配合 {@code bg_card} 的 state_focused 样式做 D-pad 焦点高亮。
+ *
+ * <p><b>点击为什么绑在条目自己身上而不是靠 {@code GridView.onItemClick}：</b>
+ * {@code AdapterView} 的触摸→点击分发在部分设备/ROM（以及视图树里有 focusable 子项时）
+ * 会走「先给子项焦点」的路径，导致 {@code onItemClick} 不触发——用户看到的就是
+ * 「点频道没反应」。v9.5.0 正是踩了这个坑。这里改为在 {@link #getView} 里直接给
+ * 条目根布局绑 {@code OnClickListener}，触摸事件由条目自己消费并回调，
+ * 不依赖 AdapterView 的分发逻辑，行为确定且与 D-pad 的 OK 键一致。
  */
 final class ChannelAdapter extends BaseAdapter {
+
+    /** 条目点击回调；{@code null} 表示不可点击。 */
+    interface OnChannelClickListener {
+        void onChannelClick(ChannelSpec spec);
+    }
+
+    /** 条目长按回调（收藏）；返回 true 表示已消费。 */
+    interface OnChannelLongClickListener {
+        boolean onChannelLongClick(ChannelSpec spec);
+    }
 
     /** 占位块底色，按 slug 稳定取色，避免每次滚动变色。 */
     private static final int[] PLACEHOLDER_COLORS = {
@@ -33,10 +50,20 @@ final class ChannelAdapter extends BaseAdapter {
     private final Context context;
     private final LayoutInflater inflater;
     private final List<ChannelSpec> items = new ArrayList<>();
+    private OnChannelClickListener clickListener;
+    private OnChannelLongClickListener longClickListener;
 
     ChannelAdapter(Context context) {
         this.context = context;
         this.inflater = LayoutInflater.from(context);
+    }
+
+    void setOnChannelClickListener(OnChannelClickListener listener) {
+        this.clickListener = listener;
+    }
+
+    void setOnChannelLongClickListener(OnChannelLongClickListener listener) {
+        this.longClickListener = listener;
     }
 
     /** 替换数据源。 */
@@ -119,6 +146,31 @@ final class ChannelAdapter extends BaseAdapter {
         }
 
         view.setContentDescription(spec.name + " " + spec.defnLabel());
+
+        // 点击/长按直接绑在条目根布局上：setTag 保存当前 spec，避免复用错位。
+        view.setTag(R.id.tag_channel_spec, spec);
+        view.setClickable(clickListener != null);
+        view.setLongClickable(longClickListener != null);
+        view.setOnClickListener(clickListener == null ? null : new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Object tag = v.getTag(R.id.tag_channel_spec);
+                if (tag instanceof ChannelSpec) {
+                    clickListener.onChannelClick((ChannelSpec) tag);
+                }
+            }
+        });
+        view.setOnLongClickListener(longClickListener == null ? null : new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                Object tag = v.getTag(R.id.tag_channel_spec);
+                if (tag instanceof ChannelSpec) {
+                    return longClickListener.onChannelLongClick((ChannelSpec) tag);
+                }
+                return false;
+            }
+        });
+
         return view;
     }
 
