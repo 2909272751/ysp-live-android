@@ -1,86 +1,122 @@
-## 🖥️ Windows 桌面版 v9.5.3 · 自带播放器
+## 🖥️ Windows 桌面版 v9.5.3 · 带安装程序
 
-**自包含：双击即用。不需要 Python、不需要 Docker、不需要装 Java、不需要浏览器。**
-
-> 上一版被问「这么小？带播放器了吗」——是的，**上一版确实没带**，
-> 它靠系统 Edge/Chrome 渲染。这一版改成了**内置精简 libVLC**，92.7 MB 里是真解码器。
+**自包含：安装包 62.4 MB，双击安装，从「设置 → 应用」正常卸载。**
+不需要 Python、不需要 Docker、不需要装 Java、不需要浏览器。
 
 ---
 
-### 下载
+### 下载哪个
 
-| 文件 | 大小 | 说明 |
+| 文件 | 大小 | 适用 |
 |---|---|---|
-| **`YspLive-Windows-v9.5.3-selfcontained.zip`** | **92.7 MB** | **推荐**。解压双击 `YspLive.exe` |
-| `YspLive-Desktop.jar` | 12.9 MB | 单文件 jar，需另行提供 `vlc\` 目录 |
+| **`YspLive-Setup-9.5.3.exe`** | **62.4 MB** | **推荐**。标准 Windows 安装程序，有开始菜单/桌面快捷方式/卸载项 |
+| `YspLive-Windows-v9.5.3-selfcontained.zip` | 92.7 MB | 免安装绿色版，解压即用 |
+| `YspLive-Desktop.jar` | 12.9 MB | 单文件 jar，需自备 `vlc\` 目录 |
 
-**系统要求**：Windows 10/11 64 位。**无其它依赖。**
+**系统要求**：Windows 10 / 11 64 位。**无其它依赖。**
 
 SHA-256
-- `selfcontained.zip`：`250A2CCB2001AFFC8E35790E3F932036C305E03EB7A2E31EC6C399FE052A6510`
-- `YspLive-Desktop.jar`：`64431BCDBE21CE9512C3568E490AFB48EAEA2E025436728FC1A33FFD977EB3FB`
+- `Setup.exe`：`3DC169AC6DA280925BCD9F724EC337727FCB0FB86B1A93B04F41B43D3975FF1C`
+- `selfcontained.zip`：`5C435828128E2D3214F2CE779E75EC0D2A57DF3BEE1E31B02F3EA0EDB82E195D`
+- `jar`：`64431BCDBE21CE9512C3568E490AFB48EAEA2E025436728FC1A33FFD977EB3FB`
 
 ---
 
-### 体积构成（为什么是 92.7 MB）
+### 安装程序做了什么
+
+**安装时**
+- 安装向导（简体中文 / English 可选，带图标与许可页）
+- **默认「仅为我安装」，不需要管理员权限**；也可选「为所有用户安装」（需 UAC）
+- 开始菜单：`央视频直播` / `使用说明` / `卸载央视频直播`
+- 可选桌面快捷方式
+- 安装完可直接启动
+
+**卸载时**
+- 从「设置 → 应用」或开始菜单卸载
+- 先 `taskkill` 掉正在运行的进程，避免文件占用导致残留
+- 删除程序目录、注册表项、开始菜单、桌面快捷方式
+- **单独询问是否删除用户配置**（`%APPDATA%\YspLive`），
+  默认保留，方便重装后沿用设置；也可选择一并清掉
+
+**无人值守**
+```bat
+:: 静默安装（当前用户，无需管理员）
+YspLive-Setup-9.5.3.exe /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER
+
+:: 静默卸载，保留配置
+"%LOCALAPPDATA%\Programs\YspLive\unins000.exe" /VERYSILENT
+
+:: 静默卸载，连配置一起删
+"%LOCALAPPDATA%\Programs\YspLive\unins000.exe" /VERYSILENT /REMOVEDATA
+```
+
+---
+
+### 安装/卸载实测
+
+完整跑了一遍生命周期测试，**22 项检查全过**：
+
+```
+########## 1. INSTALL ##########
+installer exit=0 in 10.3s
+  PASS  exe / runtime / jar / libVLC / README / uninstaller 全部就位
+  installed size = 230.6 MB
+
+########## 2. RUN ##########
+  PASS  process alive
+  PASS  health 200          all.m3u lines = 132
+  PASS  userdata created
+
+########## 3. UNINSTALL (keep data) ##########
+uninstaller exited=True in 1.5s
+  PASS  不卡死         PASS  程序目录删除
+  PASS  用户数据保留    PASS  marker 存活
+  PASS  注册表清掉      PASS  开始菜单清掉
+
+########## 4. REINSTALL + /REMOVEDATA ##########
+  PASS  重装成功        PASS  旧配置仍在
+  PASS  不卡死         PASS  程序目录删除
+  PASS  用户数据一并删除
+```
+
+> 过程中发现并修掉一个真 bug：卸载时询问「是否删除配置」的对话框，
+> 在 `/VERYSILENT` 静默模式下会**永久挂起等点击**。
+> Inno 的 `/SUPPRESSMSGBOXES` 只自动应答安装阶段的内建消息，
+> 不会应答自定义 `MsgBox`。已改为检测命令行后跳过询问，
+> 并新增 `/REMOVEDATA` 供无人值守场景使用。
+
+---
+
+### 包内有什么（为什么 62.4 MB）
 
 | 部分 | 解压后 |
 |---|---|
 | `runtime\` 精简 JDK | 150.5 MB |
 | **`vlc\` 精简 libVLC（含解码器）** | **62.5 MB** |
 | `app\YspLive-Desktop.jar` | 12.9 MB |
-| 合计 | 226.3 MB → zip 92.7 MB |
+| 合计 | 230.6 MB → 安装包压到 62.4 MB（LZMA2） |
 
-`vlc\` 里是真的解码器：
+`vlc\` 里是真解码器，不是空壳：
 
 ```
 libvlc.dll / libvlccore.dll
-plugins\demux       ← HLS / TS 解复用
-plugins\codec       ← H.264 / HEVC / AAC（含 D3D11VA 硬解）
-plugins\access      ← HTTP / HTTPS 拉流
+plugins\demux      ← HLS / TS 解复用（46 个插件）
+plugins\codec      ← FFmpeg 静态链入，H.264 / HEVC / AAC 全支持
+plugins\access     ← HTTP / HTTPS 拉流（36 个插件）
 plugins\video_output / video_chroma / audio_output
 ```
-
-从完整 VLC（191 MB）裁剪到 62.5 MB：砍掉 gui(19MB)、lua、skins、不用的 codec，
-保留播放 HLS 直播的全部必需项。**裁剪后实测仍能正常播放。**
-
----
-
-### 播放器实测（关键证据）
-
-跑 `E2EPlayCheck`：起引擎 → 拉流 → libVLC 播放 → 判定
-
-```
-libVlcDir = <程序目录>\vlc
-available = true
-playlistOk = true    segments = 14
-state = PLAYING      tracks = 2          ← 视频 + 音频轨
-maxProgressMs = 35946                    ← 播放推进到 35.9 秒
-RESULT: PASS
-```
-
----
-
-### 技术选型：三条路都实测过
-
-| 方案 | 结果 |
-|---|---|
-| JavaFX `MediaPlayer` | ❌ 不支持 HLS，12 秒不出帧，`status=null` |
-| JavaFX `WebView` + hls.js | ❌ 无 MSE（`MediaSource=false`），报 `levelLoadError` |
-| Edge/Chrome + hls.js | ⚠️ 能播，但要求用户装浏览器，不算自带 |
-| **内置精简 libVLC** | ✅ **实测 PASS** |
 
 ---
 
 ### 功能
 
-- **64 路频道**：央视 30 路（含 CCTV-4K/8K/16-4K）+ 卫视 34 路
-- 筛选 chip：全部/央视/卫视/4K/收藏，**筛选会记住**
-- 单击播放，右键收藏，收藏星标显示
+- **64 路频道**：央视 30 路（含 CCTV-4K / 8K / 16-4K）+ 卫视 34 路
+- 筛选 chip：全部 / 央视 / 卫视 / 4K / 收藏，**筛选会被记住**
+- 单击播放，右键收藏
 - 「继续观看」直达上次频道
 - 播放窗口：`空格` 播放暂停 · `F` 全屏 · 双击全屏 · `Esc` 退出
 - **局域网共享**：`http://<本机IP>:8767/all.m3u` 可给 TiviMate / PotPlayer / VLC / Kodi
-- 诊断页 / 日志页，可复制
+- 诊断页 / 日志页
 
 ---
 
@@ -88,14 +124,10 @@ RESULT: PASS
 
 | 项 | 结果 |
 |---|---|
-| exe 启动 | ✅ `/health` 200，进程存活 |
-| `/all.m3u` | ✅ 132 行 |
-| 界面 | ✅ `channelCardCount=64` `chipCount=5` `gridSize=1104x1590` |
-| `/cctv1.m3u8` | ✅ 200，14 分片 |
-
-> 界面截图需要你自己跑才有：开发会话没有可交互桌面，
-> 系统级截图只能拿到黑屏（`Robot.createScreenCapture` 返回全黑）。
-> 所以我内置了 `SelfCheck` 直接从 live 场景 dump 控件结构来证明界面真的构建了。
+| 内置 libVLC 定位 | ✅ `<程序目录>\vlc\libvlc.dll` |
+| 端到端播放 | ✅ `state=PLAYING tracks=2 maxProgressMs=35946` |
+| CCTV-4K (HEVC) | ✅ `state=PLAYING tracks=2  RESULT: PASS` |
+| 界面构建 | ✅ `channelCardCount=64 chipCount=5 gridSize=1104x1590` |
 
 ---
 
@@ -118,5 +150,7 @@ RESULT: PASS
 **其他任何分发渠道均非作者本人**。本项目为第三方移植，与原作者无关、未获授权或背书。
 **若原作者要求，将立即删除。**
 
-本仓库不含上游原始 Python/JS 实现。libVLC 来自 [VideoLAN](https://www.videolan.org/)，
-遵循 LGPL-2.1+ 许可。所有视频内容版权归央视及各卫视所有。仅供学习研究。
+本仓库不含上游原始 Python/JS 实现。第三方组件：libVLC (LGPL-2.1+)、
+vlcj (GPL-3.0)、JavaFX (GPL-2.0 + Classpath Exception)、JNA (Apache-2.0)。
+所有视频内容版权归央视及各卫视所有。本项目不存储、不分发任何视频内容。
+仅供学习研究，请勿商用或公开传播。

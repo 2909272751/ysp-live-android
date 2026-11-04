@@ -11,21 +11,42 @@
 
 | 文件 | 大小 | 说明 |
 |---|---|---|
-| **`YspLive-Windows-v9.5.3-selfcontained.zip`** | 92.7 MB | **推荐，自包含**。解压双击 `YspLive.exe` |
+| **`YspLive-Setup-9.5.3.exe`** | **62.4 MB** | **推荐**。标准安装程序，有开始菜单 / 桌面快捷方式 / 卸载项 |
+| `YspLive-Windows-v9.5.3-selfcontained.zip` | 92.7 MB | 免安装绿色版，解压双击 `YspLive.exe` |
 | `YspLive-Desktop.jar` | 12.9 MB | 单文件 jar，**需要**本机另有 `vlc\` 目录（见下） |
 
 **系统要求**：Windows 10 / 11（64 位）。**无其它依赖。**
 
+### 安装程序做了什么
+
+- **默认「仅为我安装」，不需要管理员权限**；也可选「为所有用户安装」（需 UAC）
+- 开始菜单：`央视频直播` / `使用说明` / `卸载央视频直播`；可选桌面快捷方式
+- 卸载会先 `taskkill` 掉正在运行的进程，再删除程序目录、注册表项、快捷方式
+- **单独询问是否删除用户配置**（`%APPDATA%\YspLive`），默认保留
+
+无人值守：
+
+```bat
+:: 静默安装（当前用户，无需管理员）
+YspLive-Setup-9.5.3.exe /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER
+
+:: 静默卸载，保留配置
+"%LOCALAPPDATA%\Programs\YspLive\unins000.exe" /VERYSILENT
+
+:: 静默卸载，连配置一起删
+"%LOCALAPPDATA%\Programs\YspLive\unins000.exe" /VERYSILENT /REMOVEDATA
+```
+
 ---
 
-## 二、包内有什么（为什么 92.7 MB）
+## 二、包内有什么（为什么 62.4 MB）
 
 | 部分 | 解压后 |
 |---|---|
 | `runtime\`（精简 JDK，jlink 裁剪） | 150.5 MB |
 | `vlc\`（**精简版 libVLC，含解码器**） | 62.5 MB |
 | `app\YspLive-Desktop.jar`（程序 + core 引擎 + hls.js 兜底） | 12.9 MB |
-| **合计** | **226.3 MB**（zip 压到 92.7 MB） |
+| **合计** | **230.6 MB**（安装包 LZMA2 压到 62.4 MB） |
 
 `vlc\` 里是真的解码器，不是空壳：
 
