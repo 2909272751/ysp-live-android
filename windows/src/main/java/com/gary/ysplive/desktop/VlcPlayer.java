@@ -228,21 +228,14 @@ final class VlcPlayer {
 
         MediaPlayerFactory factory = new MediaPlayerFactory(
                 "--no-video-title-show",
-                "--quiet",
+                // 不再传 --quiet，也不硬指定 --aout。
+                // 硬写 --aout=mmdevice 一旦模块名不匹配，libVLC 会静默失败：
+                // 对外仍报音量正常、音轨正常，但完全没有音频输出。
+                // 现在让 libVLC 自己枚举可用输出（libadummy 已从包中删除，
+                // 所以它只能选真实输出模块）。
                 "--no-osd",
                 "--no-snapshot-preview",
-                "--avcodec-hw=dxva2",
-                // 显式给出音频输出模块优先级。默认 libVLC 会自己挑，
-                // 但在某些精简版 Windows / 多声卡机器上会挑错甚至挑不到，
-                // 表现为「有画面没声音」。这三项覆盖了 Windows 上可用的全部
-                // 音频后端（mmdevice=WASAPI 首选，directsound、waveout 兜底）。
-                // 显式固定 mmdevice（WASAPI）。
-                // 关键教训：**不能**依赖 "mmdevice,directsound,waveout" 这种
-                // 回退链，也不能让 libadummy 留在 plugins/audio_output 里——
-                // 实测 libVLC 会静默选中 adummy（打开"成功"但不发声），
-                // 表现为音量/音轨都正常、系统峰值恒为 0（完全没声音）。
-                // 现在只留真实输出模块并锁定 mmdevice，dummy 已从包中删除。
-                "--aout=mmdevice");
+                "--avcodec-hw=dxva2");
 
         final EmbeddedMediaPlayer player = factory.mediaPlayers().newEmbeddedMediaPlayer();
         // 注意：这里的 setVolume 只是"先记下"，真正生效要在 playing 之后，
@@ -1046,9 +1039,12 @@ final class VlcPlayer {
             add(sp, BorderLayout.CENTER);
 
             setActive(initial.slug);
-            // 记住用户上次是否展开（完整位置记忆的一部分）
-            open = config == null || config.playerSidePanelOpen;
-            setVisible(open);
+            // 每次启动都**默认展开**侧栏。
+            // 之前会记忆"上次是否展开"，导致某次误收起后，之后启动都看不到侧栏，
+            // 用户完全不知道换台列表在哪（也找不到恢复入口）。
+            // 宁可每次都展开，用户想收起自己按 Tab 或点 ☰。
+            setVisible(true);
+            open = true;
         }
 
         private JPanel buildRow(int num, ChannelSpec spec) {
@@ -1215,10 +1211,6 @@ final class VlcPlayer {
         void toggle() {
             open = !open;
             setVisible(open);
-            // 记住侧栏状态（完整位置记忆的一部分）
-            if (config != null) {
-                config.playerSidePanelOpen = open;
-            }
             revalidate();
             repaint();
         }

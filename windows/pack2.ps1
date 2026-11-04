@@ -1,7 +1,7 @@
 $env:JAVA_HOME = 'C:\re-toolkit\jdk'
 $dist = 'C:\1\ysp-android\windows\dist'
 $inputDir = 'C:\1\ysp-android\windows\jpackage-input'
-$vlcSrc = 'C:\1\ysp-android\_vlc\minimal'
+$vlcSrc = 'C:\1\ysp-android\_vlc\full\vlc-3.0.21'
 $jar = 'C:\1\ysp-android\windows\build\libs\YspLive-Desktop.jar'
 
 Remove-Item $dist -Recurse -Force -EA SilentlyContinue
@@ -14,7 +14,7 @@ Copy-Item $jar "$inputDir\YspLive-Desktop.jar"
 $jpArgs = @(
     '--type', 'app-image',
     '--name', 'YspLive',
-    '--app-version', '9.5.9',
+    '--app-version', '9.6.0',
     '--input', $inputDir,
     '--main-jar', 'YspLive-Desktop.jar',
     '--main-class', 'com.gary.ysplive.desktop.Launcher',
