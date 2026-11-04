@@ -18,8 +18,8 @@ android {
         // applicationId 由各 flavor 覆盖（phone / tv 用不同包名，可同时安装）
         minSdk 21
         targetSdk 34
-        versionCode 911
-        versionName '9.6.2'
+        versionCode 912
+        versionName '9.6.3'
         resourceConfigurations += ['zh', 'en']
     }
 
@@ -111,7 +111,7 @@ android {
             // 产物名带上 flavor，一眼能区分手机版/电视版
             def flavor = variant.flavorName ?: 'all'
             def buildKind = variant.buildType.name == 'release' ? '' : '-debug'
-            outputFileName = "YspLive-${flavor}-v9.6.2${buildKind}.apk"
+            outputFileName = "YspLive-${flavor}-v9.6.3${buildKind}.apk"
         }
     }
 }

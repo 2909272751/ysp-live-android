@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  带内联开关的设置行。
+
+  为什么要单独的布局：成熟软件（系统设置 / Kodi / 各类播放器）里，
+  布尔项都是「左侧说明 + 右侧开关」，一眼能看出当前状态，一次点击就能切换。
+  之前本项目所有设置项都是「点一下弹窗确认」，布尔值还要多点两次，
+  在手机上尤其低效。
+
+  交互约定（同时满足触摸和遥控器）：
+    · 触摸：点整行任意位置都能切换（不用精确点中小开关）
+    · 遥控器：焦点落在 Switch 上，按确认键切换
+  注意：不要加 focusableInTouchMode，否则手机首次点击会被吞掉。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/row_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_row"
+    android:clickable="true"
+    android:focusable="false"
+    android:gravity="center_vertical"
+    android:minHeight="56dp"
+    android:orientation="horizontal"
+    android:paddingLeft="4dp"
+    android:paddingTop="8dp"
+    android:paddingRight="4dp"
+    android:paddingBottom="8dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/row_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/row_desc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="@color/text_hint"
+            android:textSize="11sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <Switch
+        android:id="@+id/row_switch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="12dp" />
+
+</LinearLayout>

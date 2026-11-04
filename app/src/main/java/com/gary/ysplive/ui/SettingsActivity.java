@@ -13,7 +13,11 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.Switch;
+import android.widget.CompoundButton;
 import android.widget.TextView;
+
+import java.util.function.Consumer;
 
 import com.gary.ysplive.R;
 import com.gary.ysplive.core.data.ChannelTable;
@@ -99,11 +103,11 @@ public final class SettingsActivity extends Activity {
                         });
                     }
                 });
-        addRow(engine, "允许局域网访问", "开启后同一 WiFi 下的电视盒子可订阅播放列表",
-                prefs.allowLan() ? "已开启" : "已关闭", true, new Runnable() {
+        addSwitchRow(engine, "允许局域网访问", "开启后同一 WiFi 下的电视盒子可订阅播放列表",
+                prefs.allowLan(), new Consumer<Boolean>() {
                     @Override
-                    public void run() {
-                        prefs.setAllowLan(!prefs.allowLan());
+                    public void accept(Boolean on) {
+                        prefs.setAllowLan(on);
                         afterEngineSettingChanged();
                     }
                 });
@@ -156,29 +160,29 @@ public final class SettingsActivity extends Activity {
                         chooseHighBitrate();
                     }
                 });
-        addRow(engine, "开机自启", "开机后自动拉起直播引擎",
-                prefs.bootAutoStart() ? "已开启" : "已关闭", true, new Runnable() {
+        addSwitchRow(engine, "开机自启", "开机后自动拉起直播引擎",
+                prefs.bootAutoStart(), new Consumer<Boolean>() {
                     @Override
-                    public void run() {
-                        prefs.setBootAutoStart(!prefs.bootAutoStart());
+                    public void accept(Boolean on) {
+                        prefs.setBootAutoStart(on);
                         refreshRows();
                     }
                 });
 
         LinearLayout play = addSection("播放体验");
-        addRow(play, "播放页强制横屏", "手机开着竖屏锁定时也能横屏看直播", 
-                prefs.playerForceLandscape() ? "已开启" : "跟随系统", true, new Runnable() {
+        addSwitchRow(play, "播放页强制横屏", "手机开着竖屏锁定时也能横屏看直播",
+                prefs.playerForceLandscape(), new Consumer<Boolean>() {
                     @Override
-                    public void run() {
-                        prefs.setPlayerForceLandscape(!prefs.playerForceLandscape());
+                    public void accept(Boolean on) {
+                        prefs.setPlayerForceLandscape(on);
                         refreshRows();
                     }
                 });
-        addRow(play, "播放页手势", "单击呼出控制条 · 双击播放暂停 · 左右滑换台",
-                prefs.playerGestures() ? "已开启" : "已关闭", true, new Runnable() {
+        addSwitchRow(play, "播放页手势", "单击呼出控制条 · 双击播放暂停 · 左右滑换台",
+                prefs.playerGestures(), new Consumer<Boolean>() {
                     @Override
-                    public void run() {
-                        prefs.setPlayerGestures(!prefs.playerGestures());
+                    public void accept(Boolean on) {
+                        prefs.setPlayerGestures(on);
                         refreshRows();
                     }
                 });
@@ -274,7 +278,7 @@ public final class SettingsActivity extends Activity {
             }
         });
 
-        addRow(tools, "版本", "", "9.5.0 · " + ChannelTable.all().size() + " 频道", false, null);
+        addRow(tools, "版本", "", com.gary.ysplive.BuildConfig.VERSION_NAME + " · " + ChannelTable.all().size() + " 频道", false, null);
     }
 
     private void refreshRows() {
@@ -325,6 +329,55 @@ public final class SettingsActivity extends Activity {
         } else {
             row.setBackgroundResource(0);
         }
+        parent.addView(row);
+    }
+
+    /**
+     * 布尔型设置行：左侧说明 + 右侧内联开关。
+     *
+     * <p>比「点一下弹窗再确认」少两次交互，且状态一眼可见。
+     * 触摸点整行任意位置都切换；遥控器把焦点放到开关上按确认键切换。
+     * 回调里负责写 settings 并刷新界面。
+     */
+    private void addSwitchRow(LinearLayout parent, String title, String desc,
+                              boolean checked, final Consumer<Boolean> onChanged) {
+        View row = LayoutInflater.from(this)
+                .inflate(R.layout.item_settings_switch, parent, false);
+        TextView t = (TextView) row.findViewById(R.id.row_title);
+        TextView d = (TextView) row.findViewById(R.id.row_desc);
+        final Switch sw = (Switch) row.findViewById(R.id.row_switch);
+
+        t.setText(title);
+        if (TextUtils.isEmpty(desc)) {
+            d.setVisibility(View.GONE);
+        } else {
+            d.setVisibility(View.VISIBLE);
+            d.setText(desc);
+        }
+        sw.setChecked(checked);
+
+        // 只在用户操作时回调；setChecked 触发的回调会被这个标记挡掉，
+        // 否则刷新界面时会写回配置、造成反复重建。
+        final boolean[] suppress = {true};
+        sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                if (suppress[0]) {
+                    return;
+                }
+                onChanged.accept(isChecked);
+            }
+        });
+        suppress[0] = false;
+
+        // 触摸：点整行也能切换（不用精确点中小开关）
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                sw.toggle();
+            }
+        });
+
         parent.addView(row);
     }
 
