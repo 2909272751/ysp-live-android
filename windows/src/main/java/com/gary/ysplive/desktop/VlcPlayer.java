@@ -236,7 +236,13 @@ final class VlcPlayer {
                 // 但在某些精简版 Windows / 多声卡机器上会挑错甚至挑不到，
                 // 表现为「有画面没声音」。这三项覆盖了 Windows 上可用的全部
                 // 音频后端（mmdevice=WASAPI 首选，directsound、waveout 兜底）。
-                "--aout=mmdevice,directsound,waveout");
+                // 显式固定 mmdevice（WASAPI）。
+                // 关键教训：**不能**依赖 "mmdevice,directsound,waveout" 这种
+                // 回退链，也不能让 libadummy 留在 plugins/audio_output 里——
+                // 实测 libVLC 会静默选中 adummy（打开"成功"但不发声），
+                // 表现为音量/音轨都正常、系统峰值恒为 0（完全没声音）。
+                // 现在只留真实输出模块并锁定 mmdevice，dummy 已从包中删除。
+                "--aout=mmdevice");
 
         final EmbeddedMediaPlayer player = factory.mediaPlayers().newEmbeddedMediaPlayer();
         // 注意：这里的 setVolume 只是"先记下"，真正生效要在 playing 之后，
