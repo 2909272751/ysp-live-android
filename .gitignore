@@ -107,3 +107,6 @@ windows/verify-*.txt
 # Python 参考实现的运行期数据（仅本地对照用）
 _pydata/
 
+
+# APK 二进制通过 GitHub Release 分发，不入库（每次 push 数 MB 易被重置）
+dist/*.apk
