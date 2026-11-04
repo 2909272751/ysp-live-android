@@ -8,12 +8,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- 触摸屏 / leanback 的 required 由各 flavor 通过 manifestPlaceholders 决定：
+         手机版要求触摸屏，电视版要求 leanback。 -->
     <uses-feature
         android:name="android.software.leanback"
-        android:required="false" />
+        android:required="${yspLeanbackRequired}" />
     <uses-feature
         android:name="android.hardware.touchscreen"
-        android:required="false" />
+        android:required="${yspTouchRequired}" />
     <uses-feature
         android:name="android.hardware.wifi"
         android:required="false" />
@@ -38,13 +40,9 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="fullUser"
-            android:theme="@style/AppTheme">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/AppTheme" />
+        <!-- 启动入口的 intent-filter 放在各 flavor 的 manifest 里：
+             手机版只有 LAUNCHER，电视版额外加 LEANBACK_LAUNCHER。 -->
 
         <activity
             android:name=".ui.PlayerActivity"

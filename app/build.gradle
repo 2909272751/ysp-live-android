@@ -15,12 +15,39 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.gary.ysplive'
+        // applicationId 由各 flavor 覆盖（phone / tv 用不同包名，可同时安装）
         minSdk 21
         targetSdk 34
-        versionCode 908
-        versionName '9.5.3'
+        versionCode 910
+        versionName '9.6.1'
         resourceConfigurations += ['zh', 'en']
+    }
+
+    // ------------------------------------------------------------------
+    // 手机版 / 电视版 拆分成两个独立 APK
+    //
+    // 为什么必须拆：
+    //   手机是「竖屏 + 触摸」，电视是「横屏 + 遥控器 D-pad」，交互模型不同。
+    //   触摸要 clickable + 大点击区；遥控器要 focusable + 明显焦点态。
+    //   合在一个包里必然互相妥协——这次「遥控器选不中」就是典型的混合代价。
+    //
+    // 拆分后：
+    //   phone flavor -> app/src/phone/**  （触摸优先 UI）
+    //   tv    flavor -> app/src/tv/**     （10 英尺 / 遥控器优先 UI）
+    //   公共逻辑仍放 app/src/main/**
+    // ------------------------------------------------------------------
+    flavorDimensions += 'form'
+    productFlavors {
+        phone {
+            dimension 'form'
+            applicationId 'com.gary.ysplive.phone'
+            manifestPlaceholders = [yspTouchRequired: 'true', yspLeanbackRequired: 'false']
+        }
+        tv {
+            dimension 'form'
+            applicationId 'com.gary.ysplive.tv'
+            manifestPlaceholders = [yspTouchRequired: 'false', yspLeanbackRequired: 'true']
+        }
     }
 
     signingConfigs {
@@ -81,8 +108,10 @@ android {
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            def name = variant.name == 'release' ? 'YspLive-v9.5.3' : 'YspLive-v9.5.3-debug'
-            outputFileName = "${name}.apk"
+            // 产物名带上 flavor，一眼能区分手机版/电视版
+            def flavor = variant.flavorName ?: 'all'
+            def buildKind = variant.buildType.name == 'release' ? '' : '-debug'
+            outputFileName = "YspLive-${flavor}-v9.6.1${buildKind}.apk"
         }
     }
 }
