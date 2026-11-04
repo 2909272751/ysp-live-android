@@ -61,6 +61,17 @@ final class Dialogs {
             if (css != null) {
                 scene.getStylesheets().add(css.toExternalForm());
             }
+            // 对话框窗口也铺同样的模糊底图，玻璃卡片才有内容可透
+            java.net.URL bg = Dialogs.class.getResource("/ui/backdrop.jpg");
+            if (bg != null) {
+                scene.getRoot().setStyle(
+                        "-fx-background-color: rgba(14,18,26,0.94);"
+                        + "-fx-background-image: url('" + bg.toExternalForm() + "');"
+                        + "-fx-background-size: cover;"
+                        + "-fx-background-position: center center;"
+                        + "-fx-background-radius: 12;");
+                scene.getRoot().getStyleClass().add("dialog-root");
+            }
         } catch (RuntimeException ignored) {
             // 样式缺失不影响功能
         }
@@ -115,6 +126,8 @@ final class Dialogs {
         sb.append("浏览器内核：").append(chromiumPath == null ? "未找到（Edge/Chrome）" : chromiumPath)
                 .append('\n');
         sb.append("配置目录：").append(DesktopConfig.dataDir()).append('\n');
+        sb.append("日志文件：").append(LogFile.path() == null ? "未启用" : LogFile.path())
+                .append('\n');
         sb.append("Java：").append(System.getProperty("java.version"))
                 .append("  ").append(System.getProperty("java.vendor")).append('\n');
         sb.append("系统：").append(System.getProperty("os.name")).append(' ')
@@ -314,11 +327,22 @@ final class Dialogs {
             cb.setContent(c);
             copy.setText("已复制");
         });
+        // 安装版没有控制台，日志文件是唯一的排查入口，必须能一键打开
+        Button openFile = new Button("打开日志文件");
+        openFile.setOnAction(e -> {
+            java.nio.file.Path p = LogFile.path();
+            if (p != null && java.nio.file.Files.isRegularFile(p)) {
+                Browser.openFile(p.toFile());
+            } else {
+                area.setText(area.getText() + "\n（日志文件尚未生成："
+                        + DesktopConfig.dataDir() + "\\logs\\）");
+            }
+        });
         Button close = new Button("关闭");
         close.setOnAction(e -> s.close());
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox actions = new HBox(8, reload, copy, spacer, close);
+        HBox actions = new HBox(8, reload, copy, openFile, spacer, close);
 
         VBox root = new VBox(10, area, actions);
         root.setPadding(new Insets(14));

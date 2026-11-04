@@ -21,8 +21,12 @@ $jpArgs = @(
     '--dest', $dist,
     '--java-options', '-Dfile.encoding=UTF-8',
     '--java-options', '-Dstdout.encoding=UTF-8',
-    '--java-options', '-Dprism.order=sw',
-    '--win-console'
+    '--java-options', '-Dstderr.encoding=UTF-8',
+    '--java-options', '-Dprism.order=sw'
+    # NOTE: do NOT pass --win-console.
+    # It produces PE subsystem=3 (CONSOLE), which makes Windows attach a black
+    # console window that stays visible the whole time the app runs.
+    # Diagnostics go to a log file instead (see LogFile in the app).
 )
 & "$env:JAVA_HOME\bin\jpackage.exe" @jpArgs 2>&1 | Select-Object -Last 10
 if ($LASTEXITCODE -ne 0) { Write-Host "JPACKAGE FAILED"; exit 1 }

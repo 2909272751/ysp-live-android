@@ -62,15 +62,40 @@ public final class App extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.stage = primaryStage;
+        // 安装版是 GUI 子系统（无控制台），日志必须落文件才能排查问题。
+        LogFile.start();
         this.config = DesktopConfig.load();
         this.engine = new EngineController(config);
 
         BorderPane root = new BorderPane();
-        root.setTop(buildHeader());
-        root.setCenter(buildBody());
         root.getStyleClass().add("root-pane");
 
-        Scene scene = new Scene(root, config.windowWidth, config.windowHeight);
+        // 毛玻璃效果的关键：底层铺一张带色块的背景图，上层控件用半透明白/黑
+        // 叠加并加边框高光，视觉上才有「磨砂玻璃」质感。
+        // 纯 JavaFX 没有真正的背景模糊（不像 CSS backdrop-filter），
+        // 所以用「模糊底图 + 半透明层 + 1px 亮边」做出等效观感。
+        StackPane layered = new StackPane();
+        layered.getStyleClass().add("layered-root");
+
+        Region backdrop = new Region();
+        backdrop.getStyleClass().add("backdrop");
+        try {
+            java.net.URL bg = App.class.getResource("/ui/backdrop.jpg");
+            if (bg != null) {
+                backdrop.setStyle("-fx-background-image: url('" + bg.toExternalForm() + "');"
+                        + "-fx-background-size: cover;"
+                        + "-fx-background-position: center center;");
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "加载背景图失败：" + e);
+        }
+
+        root.setTop(buildHeader());
+        root.setCenter(buildBody());
+
+        layered.getChildren().addAll(backdrop, root);
+
+        Scene scene = new Scene(layered, config.windowWidth, config.windowHeight);
         try {
             java.net.URL css = App.class.getResource("/ui/app.css");
             if (css != null) {
@@ -82,6 +107,8 @@ public final class App extends Application {
 
         primaryStage.setTitle("央视频全频道直播 · Windows 版");
         primaryStage.setScene(scene);
+        // 场景透明，让圆角与玻璃层生效
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
         primaryStage.setMinWidth(880);
         primaryStage.setMinHeight(600);
         primaryStage.setOnCloseRequest(e -> shutdown());
@@ -225,12 +252,19 @@ public final class App extends Application {
     }
 
     private Region buildChannelCard(ChannelSpec spec) {
+        // 台标底衬：央视频台标多为深色/彩色 logo，直接贴深色卡片会糊成一片
+        // （实测台标区平均亮度 ~61，卡片底 ~32，对比度不足）。
+        // 给它加一块浅色圆角底衬，这是深色 UI 里保证台标可读的标准做法。
         Label logoText = new Label(initialOf(spec.name));
         logoText.getStyleClass().add("logo-text");
-        StackPane logoBox = new StackPane(logoText);
+
+        StackPane logoInner = new StackPane(logoText);
+        logoInner.getStyleClass().add("logo-plate");
+
+        StackPane logoBox = new StackPane(logoInner);
         logoBox.getStyleClass().add("logo-box");
-        logoBox.setPrefSize(Double.MAX_VALUE, 62);
-        colorize(logoBox, spec.slug);
+        logoBox.setPrefSize(Double.MAX_VALUE, 66);
+        StackPane.setMargin(logoInner, new Insets(3, 3, 3, 3));
 
         Image cached = logoCache.get(spec.logo);
         if (cached != null) {
@@ -287,13 +321,6 @@ public final class App extends Application {
         return card;
     }
 
-    private void colorize(StackPane box, String slug) {
-        int hash = slug == null ? 0 : slug.hashCode();
-        int idx = Math.abs(hash) % 6;
-        String[] colors = {"#26364d", "#3a2f4d", "#4d2f38", "#2f4d3d", "#4d432f", "#333a4d"};
-        box.setStyle("-fx-background-color: " + colors[idx] + "; -fx-background-radius: 8;");
-    }
-
     private static String initialOf(String name) {
         if (name == null || name.isEmpty()) {
             return "?";
@@ -310,12 +337,25 @@ public final class App extends Application {
             return;
         }
         ImageView iv = new ImageView(img);
-        iv.setFitWidth(56);
-        iv.setFitHeight(40);
+        iv.setFitWidth(62);
+        iv.setFitHeight(44);
         iv.setPreserveRatio(true);
         iv.setSmooth(true);
+        // 台标贴到浅色底衬上（bg 由 .logo-plate 提供），
+        // 深色/彩色 logo 才能与卡片背景拉开对比度。
+        StackPane plate = null;
+        if (!box.getChildren().isEmpty()
+                && box.getChildren().get(0) instanceof StackPane) {
+            plate = (StackPane) box.getChildren().get(0);
+        }
         fallback.setVisible(false);
-        box.getChildren().add(0, iv);
+        if (plate != null) {
+            if (!plate.getChildren().contains(iv)) {
+                plate.getChildren().add(iv);
+            }
+        } else if (!box.getChildren().contains(iv)) {
+            box.getChildren().add(0, iv);
+        }
     }
 
     private void loadLogoAsync(ChannelSpec spec, StackPane box, Label fallback) {
@@ -505,6 +545,7 @@ public final class App extends Application {
             webServer = null;
         }
         engine.stop();
+        LogFile.flush();
         Platform.exit();
     }
 

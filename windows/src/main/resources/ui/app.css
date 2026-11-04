@@ -1,214 +1,398 @@
-/* 央视频直播 · Windows 桌面版 */
+/*
+ * 央视频直播 · Windows 桌面版样式
+ *
+ * 设计方向：深色毛玻璃（glassmorphism）
+ *
+ * 关于「玻璃感」的实现说明：
+ * JavaFX 没有 CSS 的 backdrop-filter，无法对下层内容做实时模糊。
+ * 所以采用等效方案：
+ *   1) 底层铺一张已经模糊过的色块背景图（backdrop）
+ *   2) 上层容器用低不透明度的浅色叠加（-fx-background-color: rgba(255,255,255,0.06)）
+ *   3) 加 1px 半透明亮边模拟玻璃边缘反光
+ *   4) 关键的圆角 + 内阴影层次
+ * 这套组合在视觉上非常接近「磨玻璃」，且性能开销极小（不需要实时模糊）。
+ *
+ * 对比度说明：所有正文文字都在 #E8EDF4 以上，配合半透明深色底，
+ * 在背景图任意位置都能保证可读性；次要文字不低于 #9BA8BA。
+ */
 
-.root-pane {
-    -fx-background-color: #0c0f14;
+/* ==================== 根层 ==================== */
+
+.layered-root {
+    -fx-background-color: #0a0d12;
 }
 
+.backdrop {
+    -fx-background-color: #0a0d12;
+}
+
+.root-pane {
+    /* 这层不铺不透明底色，让背景图透出来 */
+    -fx-background-color: transparent;
+}
+
+/* ==================== 顶部栏（独立玻璃浮层） ==================== */
+
 .top {
-    -fx-background-color: #0c0f14;
+    -fx-background-color: rgba(14, 18, 26, 0.72);
+    -fx-background-radius: 0 0 16 16;
+    -fx-border-color: rgba(255, 255, 255, 0.07);
+    -fx-border-width: 0 0 1 0;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 18, 0.0, 0, 4);
 }
 
 .header {
-    -fx-background-color: #0c0f14;
+    -fx-background-color: transparent;
 }
 
 .title {
-    -fx-text-fill: #f2f4f8;
-    -fx-font-size: 21px;
+    -fx-text-fill: #F5F8FC;
+    -fx-font-size: 22px;
     -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.6), 6, 0.0, 0, 1);
 }
 
 .subtitle {
-    -fx-text-fill: #4fa8ff;
+    -fx-text-fill: #6FB2FF;
     -fx-font-size: 12px;
-    -fx-padding: 3 0 0 2;
+    -fx-font-weight: bold;
+    -fx-padding: 4 0 0 2;
 }
 
 .status-text {
-    -fx-text-fill: #f2f4f8;
+    -fx-text-fill: #E8EDF4;
     -fx-font-size: 13px;
 }
 
 .status-detail {
-    -fx-text-fill: #9aa6b5;
+    -fx-text-fill: #9BA8BA;
     -fx-font-size: 11px;
 }
 
-/* ---------------- 按钮 ---------------- */
+/* ==================== 按钮 ==================== */
 
 .button {
-    -fx-background-color: #1e242e;
-    -fx-text-fill: #f2f4f8;
-    -fx-background-radius: 7;
-    -fx-padding: 6 14 6 14;
+    -fx-background-color: rgba(255, 255, 255, 0.09);
+    -fx-text-fill: #E8EDF4;
+    -fx-background-radius: 8;
+    -fx-border-color: rgba(255, 255, 255, 0.10);
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-padding: 7 15 7 15;
     -fx-font-size: 13px;
     -fx-cursor: hand;
 }
 
 .button:hover {
-    -fx-background-color: #2a3340;
+    -fx-background-color: rgba(255, 255, 255, 0.16);
+    -fx-border-color: rgba(255, 255, 255, 0.20);
 }
 
 .button:pressed {
-    -fx-background-color: #35404f;
+    -fx-background-color: rgba(255, 255, 255, 0.22);
 }
 
 .button.primary {
-    -fx-background-color: #b01624;
-    -fx-text-fill: #ffffff;
+    -fx-background-color: linear-gradient(to bottom, #E23A47, #B01624);
+    -fx-text-fill: #FFFFFF;
+    -fx-border-color: rgba(255, 130, 140, 0.45);
+    -fx-font-weight: bold;
 }
 
 .button.primary:hover {
-    -fx-background-color: #e62f3c;
+    -fx-background-color: linear-gradient(to bottom, #F04A57, #C81D2C);
 }
 
-/* ---------------- 筛选 chip ---------------- */
+/* ==================== 筛选 chip ==================== */
 
 .chip {
-    -fx-background-color: #1e242e;
-    -fx-text-fill: #9aa6b5;
-    -fx-background-radius: 16;
-    -fx-padding: 6 18 6 18;
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-text-fill: #B9C4D4;
+    -fx-background-radius: 17;
+    -fx-border-color: rgba(255, 255, 255, 0.09);
+    -fx-border-radius: 17;
+    -fx-border-width: 1;
+    -fx-padding: 7 19 7 19;
     -fx-font-size: 13px;
     -fx-cursor: hand;
 }
 
 .chip:hover {
-    -fx-background-color: #2a3340;
+    -fx-background-color: rgba(255, 255, 255, 0.15);
+    -fx-text-fill: #E8EDF4;
 }
 
 .chip:selected {
-    -fx-background-color: #b01624;
-    -fx-text-fill: #ffffff;
+    -fx-background-color: linear-gradient(to bottom, #E23A47, #B01624);
+    -fx-text-fill: #FFFFFF;
     -fx-font-weight: bold;
+    -fx-border-color: rgba(255, 150, 160, 0.55);
 }
 
-/* ---------------- 频道网格 ---------------- */
+/* ==================== 频道网格 ==================== */
 
 .grid-scroll {
-    -fx-background-color: #0c0f14;
-    -fx-background: #0c0f14;
+    -fx-background-color: transparent;
+    -fx-background: transparent;
 }
 
 .grid-scroll > .viewport {
-    -fx-background-color: #0c0f14;
+    -fx-background-color: transparent;
 }
 
 .grid {
-    -fx-background-color: #0c0f14;
+    -fx-background-color: transparent;
 }
 
+/* 玻璃卡片：半透明 + 亮边 + 阴影，背景图的光晕会透出来 */
 .channel-card {
-    -fx-background-color: #161b23;
-    -fx-background-radius: 10;
+    -fx-background-color: rgba(30, 38, 52, 0.55);
+    -fx-background-radius: 12;
+    -fx-border-color: rgba(255, 255, 255, 0.08);
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
     -fx-padding: 9;
     -fx-cursor: hand;
-    -fx-border-color: transparent;
-    -fx-border-width: 1;
-    -fx-border-radius: 10;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.35), 10, 0.0, 0, 2);
 }
 
 .channel-card.hover {
-    -fx-background-color: #1e2632;
-    -fx-border-color: #e62f3c;
+    -fx-background-color: rgba(48, 58, 76, 0.80);
+    -fx-border-color: rgba(255, 105, 115, 0.85);
+    -fx-effect: dropshadow(gaussian, rgba(230, 47, 60, 0.40), 16, 0.0, 0, 3);
+}
+
+/* 台标底衬：浅色圆角块。
+   央视频台标多为深色/彩色 logo，直接贴深色卡片对比度不足
+   （实测台标区平均亮度 ~61，卡片底 ~32）。
+   加一块浅色底衬把台标"托"起来，是深色 UI 的标准做法。 */
+.logo-plate {
+    -fx-background-color: rgba(238, 243, 250, 0.94);
+    -fx-background-radius: 8;
+    -fx-border-color: rgba(255, 255, 255, 0.22);
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-padding: 3;
+    -fx-effect: innershadow(gaussian, rgba(0, 0, 0, 0.12), 4, 0.0, 0, 1);
 }
 
 .logo-box {
-    -fx-background-radius: 8;
+    -fx-background-color: rgba(0, 0, 0, 0.20);
+    -fx-background-radius: 9;
     -fx-alignment: center;
+    -fx-padding: 2;
 }
 
 .logo-text {
-    -fx-text-fill: #9aa6b5;
-    -fx-font-size: 20px;
+    -fx-text-fill: #2A3442;
+    -fx-font-size: 19px;
     -fx-font-weight: bold;
 }
 
 .channel-name {
-    -fx-text-fill: #f2f4f8;
+    -fx-text-fill: #F0F4FA;
     -fx-font-size: 13px;
 }
 
 .badge {
-    -fx-background-color: #241a1c;
-    -fx-text-fill: #4fa8ff;
-    -fx-background-radius: 4;
-    -fx-padding: 1 5 1 5;
+    -fx-background-color: rgba(79, 168, 255, 0.18);
+    -fx-text-fill: #8FC4FF;
+    -fx-background-radius: 5;
+    -fx-border-color: rgba(79, 168, 255, 0.30);
+    -fx-border-radius: 5;
+    -fx-border-width: 1;
+    -fx-padding: 1 6 1 6;
     -fx-font-size: 10px;
 }
 
 .channel-group {
-    -fx-text-fill: #6b7785;
+    -fx-text-fill: #A7B4C6;
     -fx-font-size: 10px;
 }
 
 .star {
-    -fx-text-fill: #ffb020;
+    -fx-text-fill: #FFC24D;
     -fx-font-size: 13px;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.8), 4, 0.0, 0, 1);
 }
 
 .empty {
-    -fx-text-fill: #6b7785;
+    -fx-text-fill: #9BA8BA;
     -fx-font-size: 14px;
     -fx-padding: 40;
 }
 
-/* ---------------- 对话框 ---------------- */
+/* ==================== 对话框（玻璃面板） ==================== */
 
 .dialog-title {
-    -fx-text-fill: #f2f4f8;
+    -fx-text-fill: #F5F8FC;
     -fx-font-size: 17px;
     -fx-font-weight: bold;
 }
 
 .dialog-body {
-    -fx-text-fill: #9aa6b5;
+    -fx-text-fill: #C4CFDD;
     -fx-font-size: 13px;
 }
 
 .hint {
-    -fx-text-fill: #6b7785;
+    -fx-text-fill: #9BA8BA;
     -fx-font-size: 11px;
 }
 
+.dialog-root {
+    -fx-background-color: rgba(18, 23, 32, 0.96);
+    -fx-background-radius: 14;
+}
+
+/* 让对话框窗口本身也用玻璃底 */
+.dialog-pane {
+    -fx-background-color: rgba(18, 23, 32, 0.96);
+    -fx-background-radius: 14;
+    -fx-border-color: rgba(255, 255, 255, 0.10);
+    -fx-border-width: 1;
+    -fx-border-radius: 14;
+}
+
+/* ==================== 文本区 / 输入 ==================== */
+
 .mono {
-    -fx-font-family: "Consolas", "Cascadia Mono", monospace;
+    -fx-font-family: "Consolas", "Cascadia Mono", "Microsoft YaHei UI", monospace;
     -fx-font-size: 12px;
-    -fx-control-inner-background: #0c0f14;
-    -fx-text-fill: #d7dde6;
+    -fx-control-inner-background: rgba(10, 13, 18, 0.92);
+    -fx-text-fill: #C4CFDD;
+    -fx-highlight-fill: rgba(230, 47, 60, 0.45);
+    -fx-highlight-text-fill: #FFFFFF;
+}
+
+.mono .content {
+    -fx-background-color: rgba(10, 13, 18, 0.92);
+}
+
+.mono .scroll-pane,
+.mono .viewport {
+    -fx-background-color: transparent;
 }
 
 .label {
-    -fx-text-fill: #c8d1dc;
-}
-
-.text-field, .spinner, .combo-box {
-    -fx-background-color: #1e242e;
-    -fx-text-fill: #f2f4f8;
-    -fx-background-radius: 6;
+    -fx-text-fill: #D6DEE9;
 }
 
 .text-field {
-    -fx-prompt-text-fill: #6b7785;
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-text-fill: #F0F4FA;
+    -fx-prompt-text-fill: #8A97A8;
+    -fx-background-radius: 7;
+    -fx-border-color: rgba(255, 255, 255, 0.10);
+    -fx-border-radius: 7;
+    -fx-border-width: 1;
+    -fx-padding: 6 10 6 10;
+}
+
+.text-field:focused {
+    -fx-border-color: rgba(230, 47, 60, 0.75);
+    -fx-background-color: rgba(255, 255, 255, 0.12);
+}
+
+.spinner,
+.combo-box {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-background-radius: 7;
+    -fx-border-color: rgba(255, 255, 255, 0.10);
+    -fx-border-radius: 7;
+    -fx-border-width: 1;
+}
+
+.spinner .text-field,
+.combo-box .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: #F0F4FA;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: #161B23;
+    -fx-border-color: rgba(255, 255, 255, 0.12);
+}
+
+.combo-box-popup .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: #E8EDF4;
+    -fx-padding: 6 12 6 12;
+}
+
+.combo-box-popup .list-cell:hover {
+    -fx-background-color: rgba(230, 47, 60, 0.30);
 }
 
 .check-box {
-    -fx-text-fill: #c8d1dc;
+    -fx-text-fill: #D6DEE9;
 }
+
+.check-box .box {
+    -fx-background-color: rgba(255, 255, 255, 0.08);
+    -fx-border-color: rgba(255, 255, 255, 0.20);
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+
+.check-box:selected .mark {
+    -fx-background-color: #FFFFFF;
+}
+
+.check-box:selected .box {
+    -fx-background-color: #B01624;
+    -fx-border-color: #E23A47;
+}
+
+/* ==================== 滚动条（细、半透明） ==================== */
 
 .scroll-pane {
     -fx-background-color: transparent;
 }
 
 .scroll-bar {
-    -fx-background-color: #0c0f14;
+    -fx-background-color: transparent;
+    -fx-padding: 2;
+}
+
+.scroll-bar .track {
+    -fx-background-color: transparent;
 }
 
 .scroll-bar .thumb {
-    -fx-background-color: #2a3340;
-    -fx-background-radius: 4;
+    -fx-background-color: rgba(255, 255, 255, 0.20);
+    -fx-background-radius: 5;
 }
 
 .scroll-bar .thumb:hover {
-    -fx-background-color: #3a4553;
+    -fx-background-color: rgba(255, 255, 255, 0.34);
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button,
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+/* ==================== 分隔线 ==================== */
+
+.separator .line {
+    -fx-border-color: rgba(255, 255, 255, 0.08);
+    -fx-border-width: 1 0 0 0;
+}
+
+/* ==================== 提示条 ==================== */
+
+.tooltip {
+    -fx-background-color: rgba(20, 26, 36, 0.97);
+    -fx-text-fill: #E8EDF4;
+    -fx-background-radius: 8;
+    -fx-border-color: rgba(255, 255, 255, 0.12);
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-font-size: 12px;
+    -fx-padding: 8 12 8 12;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.5), 12, 0.0, 0, 3);
 }
