@@ -94,3 +94,8 @@ windows/probe/*.log
 /probe-page.html
 /cap-probe.html
 *.err
+
+# Windows: libVLC 由 make-minimal-vlc.ps1 自动下载/裁剪，不入库
+_vlc/
+windows/probe/vlc-out/
+.github/RELEASE-BODY-WIN.md

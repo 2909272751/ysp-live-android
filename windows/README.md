@@ -1,80 +1,100 @@
 # 央视频全频道直播 · Windows 桌面版
 
-**装好就能看。不需要 Python、不需要 Docker、不需要浏览器插件。**
+**自包含：双击即用。不需要 Python、不需要 Docker、不需要装 Java、不需要浏览器。**
 
-和 Android 版共用同一套 `core` 引擎（纯 Java 17、零 Android 依赖），
-区别只是界面：Android 用原生 UI + ExoPlayer，Windows 用 JavaFX + 浏览器内核渲染。
+引擎与 Android 版**共用同一份 `core`**（纯 Java 17、零 Android 依赖）；
+播放器是内置的精简版 **libVLC**，随包分发，不依赖系统里有什么。
 
 ---
 
-## 一、运行环境
+## 一、下载哪个
 
-| 项 | 要求 |
+| 文件 | 大小 | 说明 |
+|---|---|---|
+| **`YspLive-Windows-v9.5.3-selfcontained.zip`** | 92.7 MB | **推荐，自包含**。解压双击 `YspLive.exe` |
+| `YspLive-Desktop.jar` | 12.9 MB | 单文件 jar，**需要**本机另有 `vlc\` 目录（见下） |
+
+**系统要求**：Windows 10 / 11（64 位）。**无其它依赖。**
+
+---
+
+## 二、包内有什么（为什么 92.7 MB）
+
+| 部分 | 解压后 |
 |---|---|
-| 系统 | Windows 10 / 11（64 位） |
-| Java | **不需要安装**，exe 自带运行时（jlink 精简 JDK） |
-| 浏览器内核 | **需要 Edge 或 Chrome**（用于渲染画面，Windows 10/11 通常自带 Edge） |
-| 网络 | 能直连 `*.cctv.cn` |
+| `runtime\`（精简 JDK，jlink 裁剪） | 150.5 MB |
+| `vlc\`（**精简版 libVLC，含解码器**） | 62.5 MB |
+| `app\YspLive-Desktop.jar`（程序 + core 引擎 + hls.js 兜底） | 12.9 MB |
+| **合计** | **226.3 MB**（zip 压到 92.7 MB） |
 
-> ⚠️ 关于「需要 Edge/Chrome」：这不是偷懒。我实测了三条路——
-> JavaFX 的 `MediaPlayer` **不支持 HLS**（12 秒不出帧）；
-> JavaFX `WebView` **没有 MSE**（`MediaSource=false`），hls.js 无法工作；
-> 而 Edge/Chrome 的 Chromium 内核 MSE 完整，hls.js 可直接跑。
-> 因此画面交给系统浏览器渲染是当前最稳的方案，不引入 200MB+ 的原生解码器依赖。
+`vlc\` 里是真的解码器，不是空壳：
+
+```
+libvlc.dll / libvlccore.dll
+plugins\demux          ← HLS / TS 解复用
+plugins\codec          ← H.264 / HEVC / AAC 解码（含 D3D11VA 硬解）
+plugins\access         ← HTTP / HTTPS 拉流
+plugins\video_output / video_chroma / audio_output
+```
+
+**实测能播**（不是推测，是跑出来的）：
+
+```
+libVlcDir = <程序目录>\vlc
+available = true
+playlistOk = true   segments = 14
+state = PLAYING   tracks = 2        ← 视频+音频轨都在
+maxProgressMs = 35946               ← 播放推进到 35.9 秒
+RESULT: PASS
+```
 
 ---
 
-## 二、两种用法
+## 三、为什么用 libVLC（技术选型过程）
 
-### 方式 A：免安装（推荐）
+三条路都**实测过**才定的：
 
-解压 `YspLive-Windows-v9.5.3-portable.zip`，双击 `YspLive.exe`。
+| 方案 | 结果 |
+|---|---|
+| JavaFX `MediaPlayer` | ❌ **不支持 HLS**，12 秒内不出帧，`status=null` |
+| JavaFX `WebView` + hls.js | ❌ **没有 MSE**，`MediaSource=false`，hls.js 报 `levelLoadError` |
+| Edge/Chrome + hls.js | ⚠️ 能播，但**要求用户机器装浏览器**，不算自带 |
+| **内置精简 libVLC** | ✅ **实测 PASS**，真正自带解码器 |
 
-### 方式 B：单 jar
-
-```powershell
-java -Dprism.order=sw -jar YspLive-Desktop.jar
-```
-需要本机有 JDK 17+（比 exe 版多一个前置条件，但文件小）。
+libVLC 的原生目录从 191 MB 精简到 62.5 MB：保留 demux(ts/hls)、
+codec(h264/hevc/aac + d3d11va)、access(http)、video_output、video_chroma、
+audio_output、packetizer，砍掉 gui(19MB)、lua、skins、大部分不用的 codec。
 
 ---
 
-## 三、界面
+## 四、界面
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ 央视频直播  Windows          [引擎状态]  重载 日志 设置 诊断 │
-│ [全部] [央视] [卫视] [4K] [收藏]          [继续观看 · xxx] │
-├─────────────────────────────────────────────────────────┤
-│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐              │
-│  │CC  │ │CC  │ │CC  │ │CC  │ │CC  │ │CC  │   ← 64 个频道  │
-│  │CCTV-1│CCTV-2│CCTV-3│...                            │
-│  │1080p│1080p│1080p│                                    │
-│  └────┘ └────┘ └────┘                                    │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ 央视频直播  Windows          [状态]   重载 日志 设置 诊断  │
+│ [全部] [央视] [卫视] [4K] [收藏]        [继续观看 · CCTV-1]│
+├──────────────────────────────────────────────────────────┤
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐               │
+│  │ CC │ │ CC │ │ CC │ │ CC │ │ CC │ │ CC │   ← 64 个频道 │
+│  │CCTV-1│CCTV-2│...                                     │
+│  │1080p│1080p│                                           │
+│  └────┘ └────┘                                           │
+└──────────────────────────────────────────────────────────┘
 ```
 
-- **单击频道** → 打开播放窗口
+- **单击频道** → 打开播放窗口（内置 libVLC）
 - **右键频道** → 收藏 / 取消收藏
-- 顶部 chip 切换筛选，筛选会被记住
-- 「继续观看」显示上次看的频道
+- 顶部 chip 切换筛选，**筛选会记住**
+- 「继续观看」直达上次看的频道
 
----
+### 播放窗口快捷键
 
-## 四、播放窗口
-
-独立的 Chromium `--app` 窗口，内置控制条：
-
-| 操作 | 说明 |
+| 键 | 作用 |
 |---|---|
 | 空格 | 播放 / 暂停 |
 | F | 全屏切换 |
-| 鼠标移动 | 呼出底部控制条（3 秒自动隐藏） |
-| 底部按钮 | 暂停 / 取消静音 / 重载 |
-
-- 状态显示在左上角：`connecting…` → `ready` → `playing`
-- 右下角显示当前清晰度与码率
-- 网络错误会自动重连（hls.js 的 `startLoad` / `recoverMediaError`）
+| 双击画面 | 全屏切换 |
+| Esc | 退出全屏；已非全屏则关闭窗口 |
 
 ---
 
@@ -85,10 +105,10 @@ java -Dprism.order=sw -jar YspLive-Desktop.jar
 - 本机：`http://127.0.0.1:8767/all.m3u`
 - 局域网：`http://<本机IP>:8767/all.m3u`
 
-这个地址可以直接给 **TiviMate / PotPlayer / VLC / Kodi** 等播放器用，
-此时这台电脑就是一个直播网关，和原版 `ysp-live` 的用法完全一致。
+这个地址可以直接给 **TiviMate / PotPlayer / VLC / Kodi** 用——
+此时这台电脑就是直播网关，和原版 `ysp-live` 的用法一致。
 
-诊断页有「打开订阅地址」按钮，一键在浏览器里查看。
+诊断页有「打开订阅地址」按钮。
 
 ---
 
@@ -98,105 +118,112 @@ java -Dprism.order=sw -jar YspLive-Desktop.jar
 $env:JAVA_HOME='C:\re-toolkit\jdk'
 $env:GRADLE_USER_HOME='C:\1\ysp-android\.gradle-home'
 
-# 编译 + 打单文件 jar（含 core + JavaFX + web 资源）
+# 1) 单文件 jar（含 core + JavaFX + vlcj + web 资源）
 & .\tools\gradle-8.9\bin\gradle.bat --project-dir . :windows:fatJar
 
-# 打包成自带运行时的 exe 目录
-powershell -NoProfile -ExecutionPolicy Bypass -File windows\pack.ps1
+# 2) 精简 libVLC（从完整 VLC 目录裁剪，只需跑一次）
+powershell -File windows\make-minimal-vlc.ps1
+
+# 3) 打包成自带运行时的 exe 目录
+powershell -File windows\pack2.ps1
+
+# 4) 出 zip
+powershell -File windows\make-release2.ps1
 ```
 
 产物：
-- `windows\build\libs\YspLive-Desktop.jar` — 9.3 MB 单文件
-- `windows\dist\YspLive\YspLive.exe` — 451 KB（整个目录 160 MB，含精简 JDK）
+- `windows\build\libs\YspLive-Desktop.jar` — 12.9 MB
+- `windows\dist\YspLive\YspLive.exe` — 451 KB（目录 226 MB）
+- `windows\release\YspLive-Windows-v9.5.3-selfcontained.zip` — 92.7 MB
 
 ### 为什么不直接用 `implementation project(':core')`
 
-`core` 被 Android Library 插件管理，它的 Gradle 变体属性（`AgpVersionAttr`、
-`BuildTypeAttr`）与纯 Java 消费者不兼容，直接依赖会报
+`core` 被 Android Library 插件管理，Gradle 变体属性（`AgpVersionAttr`、
+`BuildTypeAttr`）与纯 Java 消费者不兼容，会报
 「cannot choose between debugApiElements and releaseApiElements」。
 
-但 `core` 本身就是零 Android 依赖的纯 Java 源码，所以 `windows/build.gradle` 直接
-把 `../core/src/main/java` 加进 `sourceSets`——**同一份代码参与两个构建**，
-不复制、不 fork。
+但 `core` 本身零 Android 依赖，所以 `windows/build.gradle` 直接把
+`../core/src/main/java` 加进 `sourceSets`——**同一份代码参与两个构建**，不复制不 fork。
 
-### 界面自检
+---
 
-这个会话没有可交互桌面（远程/无头），系统截图只能拿到黑屏。为了证明界面真的构建了，
-内置了 `SelfCheck`：
+## 七、自检工具
+
+界面无法在当前会话截图（无交互桌面，系统截图只能拿到黑屏），所以内置了三个自检：
 
 ```powershell
-java -Dprism.order=sw -cp windows\build\libs\YspLive-Desktop.jar `
-  com.gary.ysplive.desktop.SelfCheck out.txt
+# 1) 界面结构（真启动 App，dump live 场景）
+java -Dprism.order=sw -cp app\YspLive-Desktop.jar com.gary.ysplive.desktop.SelfCheck out.txt
+
+# 2) libVLC 是否被正确找到
+java -cp app\YspLive-Desktop.jar com.gary.ysplive.desktop.VlcSelfCheck
+
+# 3) 端到端播放（起引擎 -> 拉流 -> libVLC 播放 -> 判定）
+java -cp app\YspLive-Desktop.jar com.gary.ysplive.desktop.E2EPlayCheck cctv6 e2e.txt
 ```
 
-它会真启动 App、等 12 秒，然后把 live 场景里的控件结构写出来。实测输出：
+实测输出：
 
 ```
+# SelfCheck
 stageTitle=央视频全频道直播 · Windows 版
 showing=true  sceneSize=1120x760
 Label "引擎已就绪"  Label "端口 8767 · 64 个频道 · 1080p 模式"
 chipCount=5  channelCardCount=64  gridChildren=64  gridSize=1104x1590
+
+# VlcSelfCheck
+libVlcDir = ...\YspLive\app\..\vlc
+available = true    libvlccore.dll = true    plugins = 11 dirs
+RESULT: OK
+
+# E2EPlayCheck
+playlistOk = true   segments = 14
+state = PLAYING   tracks = 2   maxProgressMs = 35946
+RESULT: PASS
 ```
 
 ---
 
-## 七、实测记录
+## 八、实测记录
 
 | 项 | 结果 |
 |---|---|
-| 引擎启动 | ✅ 8767 端口，64 频道，`/health` 200 |
+| exe 启动 | ✅ 进程存活，`/health` 200 |
 | `/all.m3u` | ✅ 132 行（64 频道 + 头部） |
 | 界面构建 | ✅ 64 张频道卡片全部渲染 |
-| 视频播放 | ✅ **headless Edge 截图确认 CCTV-6 画面在播**（见下） |
-| 打包 exe | ✅ 451 KB，自带运行时，启动后 `/health` 200 |
-
-视频播放的验证过程（这是最关键的一步，贴出来备查）：
-
-```
-Hls present = true
-Hls.version = 1.5.17
-MSE = true
-Hls.isSupported = true
-MANIFEST_PARSED levels=1
-LEVEL_LOADED frags=14
-FRAG_LOADED sn=20 size=2229868
-loadedmetadata dur=56
-TIMEUPDATE t=38.1
-PLAYING t=38.1
-```
-
-截图里能看到 CCTV-6 的电影画面和台标。
+| `/cctv1.m3u8` | ✅ 200，14 分片 |
+| **内置播放器出画** | ✅ **`state=PLAYING tracks=2` 播放推进 35.9 秒** |
+| libVLC 体积 | 191 MB → **62.5 MB**（裁剪后仍能播） |
 
 ---
 
-## 八、已知限制
+## 九、已知限制
 
-1. **必须有 Edge 或 Chrome**。Windows 10/11 默认带 Edge；被精简过的系统需自行安装。
-2. **必须能直连 `*.cctv.cn`**，不经过代理（央视频对代理 IP 会 403）。
-3. 4K/8K 需要足够带宽（实测单分片 12–18 MB，约 36 Mbps 峰值）。
-4. 播放窗口是独立进程；关闭主界面不会自动关掉已开的播放窗口（Chromium 行为），
-   可在播放窗口直接关闭。
-5. 时移回看（7 天）引擎支持，桌面播放页暂未做 UI 入口——可通过
-   `http://127.0.0.1:8767/cctv1.m3u8?playseek=20260101080000-20260101090000` 直接访问。
+1. **必须能直连 `*.cctv.cn`**，不走代理（央视频对代理 IP 会 403）。
+2. 4K/8K 需要带宽，实测单分片 12–18 MB（约 36 Mbps 峰值）。
+   需要 GPU 支持 HEVC 硬解，否则可能卡顿或回落到 1080p。
+3. 目前是**单播放窗口**：点新频道会替换当前播放窗口（不叠开多个）。
+4. 时移回看引擎支持，桌面播放页暂未做 UI 入口，可直接访问
+   `http://127.0.0.1:8767/cctv1.m3u8?playseek=20260101080000-20260101090000`。
+5. 首次启动会比后续慢 1–2 秒（libVLC 初始化）。
 
 ---
 
-## 九、与 Android 版的关系
+## 十、与 Android 版的关系
 
 | | Android | Windows |
 |---|---|---|
 | 引擎 | `core`（同一份） | `core`（同一份） |
 | 协议实现 | 相同 | 相同 |
 | 界面 | 原生 View + GridView | JavaFX |
-| 播放 | Media3 / ExoPlayer | 内嵌 Chromium + hls.js |
-| 本地产出 | 前台 Service | 普通进程 |
+| 播放 | Media3 / ExoPlayer | **内置 libVLC** |
 | 局域网共享 | 支持 | 支持 |
 
-两边跑的是**同一份协议代码**，所以修 bug 会同时受益。
+两边跑同一份协议代码，修 bug 同时受益。
 
 ---
 
-## 十、来源与声明
+## 十一、来源与声明
 
 协议与算法移植自 **Gary's Club** 发布的 [ysp-live v9.5](https://garysclub.sharewithyou.dpdns.org/ysp-live/)。
 
@@ -204,5 +231,6 @@ PLAYING t=38.1
 **其他任何分发渠道均非作者本人**。本项目为第三方移植，与原作者无关、未获授权或背书。
 **若原作者要求，将立即删除。**
 
-所有视频内容版权归央视及各卫视所有。本项目不存储、不分发任何视频内容，
-仅在本地代为请求上游公开接口并转发给本机播放器。仅供学习研究，请勿商用或公开传播。
+本仓库不含上游原始 Python/JS 实现。libVLC 来自 [VideoLAN](https://www.videolan.org/)，
+遵循 LGPL-2.1+ 许可。所有视频内容版权归央视及各卫视所有，
+本项目不存储、不分发任何视频内容。仅供学习研究，请勿商用或公开传播。

@@ -56,6 +56,7 @@ public final class App extends Application {
     private final Map<String, Image> logoCache = new HashMap<>();
 
     private PlayerLauncher.Session playerSession;
+    private VlcPlayer.Window vlcWindow;
     private String chromiumPath;
 
     @Override
@@ -405,17 +406,6 @@ public final class App extends Application {
     // ------------------------------------------------------------------ 播放
 
     private void openPlayer(ChannelSpec spec) {
-        if (chromiumPath == null) {
-            dialogs().showError("无法播放",
-                    "未检测到 Microsoft Edge 或 Google Chrome。\n\n"
-                            + "Windows 10/11 通常自带 Edge。若已卸载，请安装其中之一后重试。\n\n"
-                            + "（说明：本程序的画面由浏览器内核渲染，因此需要系统里有 Edge/Chrome。）");
-            return;
-        }
-        if (webServer == null) {
-            dialogs().showError("无法播放", "播放页服务未启动，请查看「日志」。");
-            return;
-        }
         if (!engine.isRunning()) {
             dialogs().showError("引擎未就绪", "引擎还在启动或启动失败，请稍候或查看「诊断」。");
             return;
@@ -424,16 +414,46 @@ public final class App extends Application {
         if (origin == null || origin.isEmpty()) {
             origin = "http://127.0.0.1:" + config.enginePort;
         }
-        String streamUrl = origin + "/" + spec.slug + ".m3u8";
-        String pageUrl = webServer.baseUrl() + "/player.html?src="
-                + java.net.URLEncoder.encode(streamUrl, java.nio.charset.StandardCharsets.UTF_8)
-                + "&title=" + java.net.URLEncoder.encode(spec.name, java.nio.charset.StandardCharsets.UTF_8);
+        final String streamUrl = origin + "/" + spec.slug + ".m3u8";
 
         config.lastChannel = spec.slug;
         config.save();
         loadChannelGrid();
         setStatus("正在播放 " + spec.name, spec.defnLabel() + " · " + spec.group);
 
+        // 优先用内置 libVLC（真正自带播放器，无外部依赖）
+        if (VlcPlayer.isAvailable()) {
+            try {
+                if (vlcWindow != null) {
+                    vlcWindow.release();
+                    vlcWindow = null;
+                }
+                vlcWindow = VlcPlayer.open(streamUrl, spec.name, config.fullScreenPlayer);
+                Log.i(TAG, "内置播放器播放 " + spec.name + " -> " + streamUrl);
+                return;
+            } catch (Throwable e) {
+                Log.e(TAG, "内置播放器失败，回退浏览器方案：" + e);
+            }
+        } else {
+            Log.w(TAG, "未找到内置 libVLC，回退浏览器方案");
+        }
+
+        // 兜底：用系统 Chromium + hls.js
+        if (chromiumPath == null) {
+            dialogs().showError("无法播放",
+                    "内置播放器不可用（缺少 vlc 目录），且系统未找到 Edge/Chrome。\n\n"
+                            + "请确认程序目录下存在 vlc\\libvlc.dll，"
+                            + "或安装 Microsoft Edge。\n\n诊断信息：\n"
+                            + "libVLC 目录 = " + VlcPlayer.libVlcDir());
+            return;
+        }
+        if (webServer == null) {
+            dialogs().showError("无法播放", "播放页服务未启动，请查看「日志」。");
+            return;
+        }
+        String pageUrl = webServer.baseUrl() + "/player.html?src="
+                + java.net.URLEncoder.encode(streamUrl, java.nio.charset.StandardCharsets.UTF_8)
+                + "&title=" + java.net.URLEncoder.encode(spec.name, java.nio.charset.StandardCharsets.UTF_8);
         try {
             if (playerSession != null) {
                 playerSession.close();
@@ -442,7 +462,7 @@ public final class App extends Application {
             Path profile = DesktopConfig.dataDir().resolve("browser-profile");
             playerSession = PlayerLauncher.open(chromiumPath, pageUrl, spec.name,
                     config.fullScreenPlayer, profile);
-            Log.i(TAG, "播放 " + spec.name + " -> " + streamUrl);
+            Log.i(TAG, "浏览器兜底播放 " + spec.name + " -> " + streamUrl);
         } catch (Exception e) {
             Log.e(TAG, "打开播放窗口失败：" + e);
             dialogs().showError("无法打开播放窗口", String.valueOf(e.getMessage()));
@@ -472,6 +492,10 @@ public final class App extends Application {
 
     private void shutdown() {
         config.save();
+        if (vlcWindow != null) {
+            vlcWindow.release();
+            vlcWindow = null;
+        }
         if (playerSession != null) {
             playerSession.close();
             playerSession = null;

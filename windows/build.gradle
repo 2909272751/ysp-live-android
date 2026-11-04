@@ -32,6 +32,11 @@ dependencies {
     implementation "org.openjfx:javafx-graphics:21.0.2:win"
     implementation "org.openjfx:javafx-controls:21.0.2:win"
     implementation "org.openjfx:javafx-swing:21.0.2:win"
+    // vlcj：内嵌 libVLC 播放器（HLS + H.264/HEVC 硬解），随包分发精简 libVLC
+    implementation 'uk.co.caprica:vlcj:4.8.2'
+    implementation 'uk.co.caprica:vlcj-natives:4.8.1'
+    implementation 'net.java.dev.jna:jna:5.14.0'
+    implementation 'net.java.dev.jna:jna-platform:5.14.0'
     testImplementation 'junit:junit:4.13.2'
 }
 
