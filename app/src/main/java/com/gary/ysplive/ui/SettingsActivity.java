@@ -165,6 +165,24 @@ public final class SettingsActivity extends Activity {
                     }
                 });
 
+        LinearLayout play = addSection("播放体验");
+        addRow(play, "播放页强制横屏", "手机开着竖屏锁定时也能横屏看直播", 
+                prefs.playerForceLandscape() ? "已开启" : "跟随系统", true, new Runnable() {
+                    @Override
+                    public void run() {
+                        prefs.setPlayerForceLandscape(!prefs.playerForceLandscape());
+                        refreshRows();
+                    }
+                });
+        addRow(play, "播放页手势", "单击呼出控制条 · 双击播放暂停 · 左右滑换台",
+                prefs.playerGestures() ? "已开启" : "已关闭", true, new Runnable() {
+                    @Override
+                    public void run() {
+                        prefs.setPlayerGestures(!prefs.playerGestures());
+                        refreshRows();
+                    }
+                });
+
         LinearLayout status = addSection("运行状态");
         EngineBus.State st = EngineBus.state();
         addRow(status, "引擎状态", "", st.statusText(), false, null);

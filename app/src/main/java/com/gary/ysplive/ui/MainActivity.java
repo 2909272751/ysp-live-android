@@ -70,6 +70,9 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
             if (saved != null) {
                 currentFilter = saved;
             }
+        } else {
+            // 冷启动时恢复上次的筛选项，避免每次都回到「全部」
+            currentFilter = AppPrefs.get(this).filter();
         }
 
         grid = (GridView) findViewById(R.id.channel_grid);
@@ -255,6 +258,8 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
             return;
         }
         currentFilter = label;
+        // 记住筛选，下次冷启动直接回到这里
+        AppPrefs.get(this).setFilter(label);
         applyChipSelection();
         reloadChannels();
         // 切换后把焦点放回网格，TV 体验更顺。
@@ -382,8 +387,11 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
         }
         lastOpenAt = now;
 
-        AppPrefs.get(this).setLastChannelSlug(spec.slug);
+        AppPrefs prefs = AppPrefs.get(this);
+        prefs.setLastChannelSlug(spec.slug);
+        prefs.setLastWatchedAt(now);
         lastWatchedSlug = spec.slug;
+
         Intent intent = PlayerActivity.intentFor(this, spec.slug, currentFilter);
         try {
             startActivity(intent);

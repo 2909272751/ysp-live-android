@@ -32,6 +32,9 @@ public final class AppPrefs {
     private static final String K_BOOT = "engine_boot_autostart";
     private static final String K_FAV = "favorites";
     private static final String K_LAST = "last_channel";
+    private static final String K_FILTER = "ui_filter";
+    private static final String K_PLAYER_LANDSCAPE = "player_force_landscape";
+    private static final String K_PLAYER_GESTURE = "player_gestures";
 
     public static final int DEFAULT_PORT = 8767;
     public static final int DEFAULT_CACHE_MB = 200;
@@ -203,6 +206,55 @@ public final class AppPrefs {
         } else {
             sp.edit().putString(K_LAST, slug).apply();
         }
+    }
+
+    // ---------------- 播放页体验 ----------------
+
+    /**
+     * 播放页是否强制横屏。默认开启。
+     * <p>手机上绝大多数用户开着「竖屏锁定」，此时 {@code screenOrientation="fullUser"}
+     * 会让播放页永远停在竖屏——所以默认强制横屏，并允许用户在设置里关掉。
+     */
+    public boolean playerForceLandscape() {
+        return sp.getBoolean(K_PLAYER_LANDSCAPE, true);
+    }
+
+    public void setPlayerForceLandscape(boolean value) {
+        sp.edit().putBoolean(K_PLAYER_LANDSCAPE, value).apply();
+    }
+
+    /** 播放页手势（双击播放/暂停、上下滑调音量亮度）。默认开启。 */
+    public boolean playerGestures() {
+        return sp.getBoolean(K_PLAYER_GESTURE, true);
+    }
+
+    public void setPlayerGestures(boolean value) {
+        sp.edit().putBoolean(K_PLAYER_GESTURE, value).apply();
+    }
+
+    // ---------------- 界面状态记忆 ----------------
+
+    /** 上次选中的筛选项，冷启动时恢复。 */
+    public String filter() {
+        String v = sp.getString(K_FILTER, null);
+        return v == null || v.isEmpty() ? "全部" : v;
+    }
+
+    public void setFilter(String value) {
+        if (value == null || value.isEmpty()) {
+            sp.edit().remove(K_FILTER).apply();
+        } else {
+            sp.edit().putString(K_FILTER, value).apply();
+        }
+    }
+
+    /** 上次观看的时间戳（毫秒），用于「继续观看」显示节目进度。 */
+    public long lastWatchedAt() {
+        return sp.getLong("last_watched_at", 0L);
+    }
+
+    public void setLastWatchedAt(long ms) {
+        sp.edit().putLong("last_watched_at", ms).apply();
     }
 
     // ---------------- 杂项 ----------------

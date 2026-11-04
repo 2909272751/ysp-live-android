@@ -18,8 +18,8 @@ android {
         applicationId 'com.gary.ysplive'
         minSdk 21
         targetSdk 34
-        versionCode 907
-        versionName '9.5.2'
+        versionCode 908
+        versionName '9.5.3'
         resourceConfigurations += ['zh', 'en']
     }
 
@@ -81,7 +81,7 @@ android {
 
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
-            def name = variant.name == 'release' ? 'YspLive-v9.5.2' : 'YspLive-v9.5.2-debug'
+            def name = variant.name == 'release' ? 'YspLive-v9.5.3' : 'YspLive-v9.5.3-debug'
             outputFileName = "${name}.apk"
         }
     }

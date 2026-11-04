@@ -220,7 +220,13 @@ public class TouchClickTest {
 
         GridView grid = activity.findViewById(R.id.channel_grid);
         assertNotNull(grid);
-        assertEquals("初始「全部」应为 64 路频道", 64, grid.getAdapter().getCount());
+
+        // 先把筛选显式复位到「全部」：筛选项现在会跨冷启动持久化，
+        // 上一次测试留下的状态会让这里的初始值不确定。
+        TextView allChip = findChip(filterRow, "全部");
+        assertNotNull("必须能找到「全部」chip", allChip);
+        tap(allChip);
+        assertEquals("复位到「全部」后应为 64 路", 64, grid.getAdapter().getCount());
 
         TextView cctvChip = findChip(filterRow, "央视");
         assertNotNull("必须能找到「央视」chip", cctvChip);
@@ -232,12 +238,40 @@ public class TouchClickTest {
         assertEquals("点一次「央视」后应只剩央视 30 路（若为 64，说明第一次点击被吞掉了）",
                 30, grid.getAdapter().getCount());
 
-        TextView allChip = findChip(filterRow, "全部");
-        assertNotNull(allChip);
         tap(allChip);
         assertEquals("点一次「全部」应恢复 64 路", 64, grid.getAdapter().getCount());
 
         controller.pause().stop().destroy();
+    }
+
+    /**
+     * 筛选项必须跨冷启动持久化：用户上次看「卫视」，重开 App 还应该在「卫视」。
+     */
+    @Test
+    public void filterIsPersistedAcrossRelaunch() {
+        ActivityController<MainActivity> first =
+                Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity a1 = first.get();
+        layoutScreen(a1);
+
+        LinearLayout row1 = a1.findViewById(R.id.filter_row);
+        TextView wsChip = findChip(row1, "卫视");
+        assertNotNull(wsChip);
+        tap(wsChip);
+
+        GridView g1 = a1.findViewById(R.id.channel_grid);
+        int wsCount = g1.getAdapter().getCount();
+        assertTrue("点「卫视」后应有频道", wsCount > 0);
+        first.pause().stop().destroy();
+
+        // 重新创建 Activity（模拟冷启动）
+        ActivityController<MainActivity> second =
+                Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity a2 = second.get();
+        layoutScreen(a2);
+        GridView g2 = a2.findViewById(R.id.channel_grid);
+        assertEquals("重开 App 后应仍停留在「卫视」筛选", wsCount, g2.getAdapter().getCount());
+        second.pause().stop().destroy();
     }
 
     // ==================================================================

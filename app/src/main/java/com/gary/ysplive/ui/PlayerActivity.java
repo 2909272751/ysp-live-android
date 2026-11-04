@@ -50,7 +50,8 @@ import java.util.Locale;
  * 支持回看（{@link Gateway#getTimeshiftUrl}）、上/下一频道快速换台、收藏、诊断。
  * D-pad：OK 呼出/隐藏控制条；上/下键或 CHANNEL_UP/DOWN、MEDIA_NEXT/PREVIOUS 换台。
  */
-public final class PlayerActivity extends Activity implements EngineBus.Observer {
+public final class PlayerActivity extends Activity
+        implements EngineBus.Observer, PlayerChrome.Host {
 
     private static final String TAG = "player";
 
@@ -73,6 +74,8 @@ public final class PlayerActivity extends Activity implements EngineBus.Observer
     private ExoPlayer player;
     private DefaultHttpDataSource.Factory dataSourceFactory;
     private PlayerView playerView;
+    private PlayerChrome chrome;
+    private AppPrefs prefs;
 
     private LinearLayout overlay;
     private TextView overlayName;
@@ -157,6 +160,12 @@ public final class PlayerActivity extends Activity implements EngineBus.Observer
         bindViews();
         buildPlaylist();
         initPlayer();
+
+        chrome = new PlayerChrome(this, this);
+        prefs = AppPrefs.get(this);
+        // 手机用户普遍开着竖屏锁定，fullUser 会让播放页一直竖屏 —— 这里强制横屏。
+        chrome.applyOrientation(prefs);
+        chrome.installGestures(playerView, prefs);
 
         playCurrent(false);
         showOverlay();
@@ -446,12 +455,13 @@ public final class PlayerActivity extends Activity implements EngineBus.Observer
     }
 
     private void handlePlaybackError(PlaybackException error) {
-        String detail = error == null ? "未知错误" : describe(error);
-        Log.w(TAG, "播放出错：" + detail);
+        // 面向用户的友好文案；技术细节只进日志。
+        String friendly = PlayerChrome.friendlyError(error);
+        Log.w(TAG, "播放出错：" + (error == null ? "未知" : describe(error)));
 
         if (retryCount < MAX_RETRY) {
             retryCount++;
-            showError("播放失败（第 " + retryCount + "/" + MAX_RETRY + " 次重试）：" + detail);
+            showError(friendly + "\n（第 " + retryCount + "/" + MAX_RETRY + " 次自动重试）");
             bufferingBox.setVisibility(View.GONE);
             main.postDelayed(new Runnable() {
                 @Override
@@ -464,7 +474,7 @@ public final class PlayerActivity extends Activity implements EngineBus.Observer
             }, RETRY_DELAY_MS);
             return;
         }
-        showError(getString(R.string.tip_retry_failed) + "\n" + detail);
+        showError(friendly + "\n\n已重试 " + MAX_RETRY + " 次仍未成功，可以换个频道或稍后再试");
         bufferingBox.setVisibility(View.GONE);
     }
 
@@ -949,6 +959,11 @@ public final class PlayerActivity extends Activity implements EngineBus.Observer
     protected void onDestroy() {
         EngineBus.removeObserver(this);
         main.removeCallbacksAndMessages(null);
+        if (chrome != null) {
+            chrome.cancelAutoHide();
+            chrome.restoreOrientation();
+            chrome.release();
+        }
         if (player != null) {
             try {
                 player.release();
@@ -958,6 +973,43 @@ public final class PlayerActivity extends Activity implements EngineBus.Observer
             player = null;
         }
         super.onDestroy();
+    }
+
+    // ---------------- PlayerChrome.Host ----------------
+
+    @Override
+    public void onChromeToggleOverlay() {
+        toggleOverlay();
+    }
+
+    @Override
+    public void onChromeZap(int delta) {
+        zap(delta);
+    }
+
+    @Override
+    public void onChromeTogglePlayPause() {
+        togglePlayPause();
+        Ui.toast(this, player != null && player.isPlaying() ? "▶ 播放" : "⏸ 暂停");
+    }
+
+    @Override
+    public void onChromeShowOverlay() {
+        if (!overlayVisible) {
+            showOverlay();
+        }
+    }
+
+    @Override
+    public void onChromeHideOverlay() {
+        if (overlayVisible) {
+            hideOverlay();
+        }
+    }
+
+    @Override
+    public boolean onChromeOverlayVisible() {
+        return overlayVisible;
     }
 
     @Override
