@@ -81,11 +81,30 @@ final class VlcPlayer {
         final EmbeddedMediaPlayer player;
         final MediaPlayerFactory factory;
         private volatile boolean released;
+        /** 自动隐藏控制条的定时器（截图/自动化测试时可停掉）。 */
+        Timer hideTimer;
 
         Window(JFrame frame, EmbeddedMediaPlayer player, MediaPlayerFactory factory) {
             this.frame = frame;
             this.player = player;
             this.factory = factory;
+        }
+
+        /** 供截图与自动化测试使用：停掉自动隐藏并强制显示控制条。 */
+        void pinControls() {
+            if (hideTimer != null) {
+                hideTimer.stop();
+            }
+            java.awt.Container root = frame.getContentPane();
+            for (java.awt.Component c : root.getComponents()) {
+                String n = c.getClass().getSimpleName();
+                if (n.equals("ControlBar") || n.equals("SidePanel")) {
+                    c.setVisible(true);
+                }
+            }
+            root.doLayout();
+            root.validate();
+            root.repaint();
         }
 
         boolean isShowing() {
@@ -206,22 +225,66 @@ final class VlcPlayer {
         final Window window = new Window(frame, player, factory);
 
         // ---------------- 界面组装 ----------------
+        //
+        // 布局原则（仿 PotPlayer / VLC / mpv）：
+        //   · 视频始终铺满整个窗口，不因控制条/侧栏的显隐而改变尺寸
+        //   · 控制条与侧栏是**浮在视频上的覆盖层**，不是布局的一部分
+        //
+        // 之前的实现把控制条放在 BorderLayout.SOUTH、侧栏放在 WEST，
+        // 一隐藏就会触发整个窗口 relayout 并让视频区跳一下；而且鼠标移到
+        // 控制条/侧栏上时收不到 mouseMoved（监听只装在视频层），
+        // 于是"3 秒自动隐藏"在用户正要点击时反而把控件藏了——
+        // 这就是"鼠标放上去不像成熟播放器有播放键"的直接原因。
+        // 用字段保存覆盖层引用，供 doLayout 使用。
+        // 不能直接捕获后面才声明的局部变量（Java 的前向引用限制）。
+        final JComponent[] sideHolder = new JComponent[1];
+        final JComponent[] barHolder = new JComponent[1];
 
-        JPanel root = new JPanel(new BorderLayout());
+        final JPanel root = new JPanel(null) {
+            @Override
+            public void doLayout() {
+                int w = getWidth();
+                int h = getHeight();
+                // 索引 0 是视频层（最先加入），铺满整个窗口
+                if (getComponentCount() > 0) {
+                    getComponent(0).setBounds(0, 0, w, h);
+                }
+
+                JComponent sideComp = sideHolder[0];
+                JComponent barComp = barHolder[0];
+
+                // 控制条浮在底部，横跨整个宽度
+                int barH = 0;
+                if (barComp != null) {
+                    barH = Math.max(46, barComp.getPreferredSize().height);
+                    barComp.setBounds(0, h - barH, w, barH);
+                }
+
+                // 侧栏浮在左侧，底部让出控制条的高度
+                if (sideComp != null) {
+                    boolean isOpen = !(sideComp instanceof SidePanel)
+                            || ((SidePanel) sideComp).isOpen();
+                    sideComp.setBounds(0, 0, isOpen ? 280 : 0, Math.max(0, h - barH));
+                }
+            }
+        };
         root.setBackground(Color.BLACK);
 
         // 视频区（画布 + OSD 叠加）
         final Osd osd = new Osd();
 
-        JPanel videoLayer = new JPanel(null) {
+        final JPanel videoLayer;
+        videoLayer = new JPanel(null) {
             @Override
             public void doLayout() {
                 canvas.setBounds(0, 0, getWidth(), getHeight());
-                // OSD 居中
+                // OSD 放在视频区域的垂直居中位置，
+                // 并避开底部控制条（否则会压住控制条上的文字）
                 if (osd.getParent() == this) {
                     Dimension d = osd.getPreferredSize();
+                    int safeH = Math.max(1, getHeight() - 56);
                     osd.setBounds((getWidth() - d.width) / 2,
-                            (getHeight() - d.height) / 2 - 40, d.width, d.height);
+                            Math.max(0, (safeH - d.height) / 2), d.width, d.height);
                 }
             }
         };
@@ -286,7 +349,9 @@ final class VlcPlayer {
         final ControlBar bar = new ControlBar(player, config,
                 () -> {
                     // 换台栏开关
-                    side.toggle(videoLayer.getWidth());
+                    side.toggle();
+                    root.revalidate();
+                    root.repaint();
                 },
                 () -> toggleFullScreen(frame),
                 () -> {
@@ -297,9 +362,14 @@ final class VlcPlayer {
                     }
                 });
 
-        root.add(videoLayer, BorderLayout.CENTER);
-        root.add(bar, BorderLayout.SOUTH);
-        root.add(side, BorderLayout.WEST);
+        // 注册到 holder，供 root.doLayout 定位
+        sideHolder[0] = side;
+        barHolder[0] = bar;
+
+        // 覆盖层顺序：视频在最底，侧栏其次，控制条最上（后加的在上层）
+        root.add(videoLayer);
+        root.add(side);
+        root.add(bar);
 
         frame.setContentPane(root);
 
@@ -383,29 +453,71 @@ final class VlcPlayer {
         // 键盘快捷键：装在 root 上，避免焦点问题
         installKeyBindings(root, player, config, bar, side, videoLayer, window, frame, onExit, osd);
 
-        // 鼠标移动 -> 显示控制条，静止 3 秒 -> 隐藏（仿 PotPlayer）
+        // ---------------- 控制条 / 侧栏的显隐（仿成熟播放器） ----------------
+        //
+        // 成熟播放器的行为（PotPlayer / VLC / mpv）：
+        //   · 鼠标一动就显示控制条
+        //   · 鼠标停在控制条/侧栏上时**不隐藏**（否则用户正要点就消失）
+        //   · 鼠标静止 N 秒且不在任何控件上 -> 隐藏
+        //   · 隐藏只是"不可见"，不参与布局，视频尺寸完全不变
+        //
+        // 旧实现的两个错误：
+        //   1) 只在 videoLayer 上装 mouseMoved，鼠标移到控制条/侧栏上就收不到事件，
+        //      于是 3 秒后照样隐藏；
+        //   2) 控制条在 BorderLayout.SOUTH，隐藏会触发 relayout 让视频跳一下。
         final Timer[] hideRef = new Timer[1];
-        final Timer hideTimer = new Timer(3000, e -> {
-            if (player.status().isPlaying()) {
-                bar.setVisible(false);
-                if (hideRef[0] != null) {
-                    hideRef[0].stop();
+        final Timer hideTimer = new Timer(2800, e -> {
+            // 鼠标在控制条或侧栏范围内 -> 不隐藏
+            java.awt.Point mp = java.awt.MouseInfo.getPointerInfo() == null
+                    ? null : java.awt.MouseInfo.getPointerInfo().getLocation();
+            if (mp != null) {
+                java.awt.Point inBar = new java.awt.Point(mp);
+                javax.swing.SwingUtilities.convertPointFromScreen(inBar, bar);
+                if (bar.isShowing() && bar.contains(inBar)) {
+                    hideRef[0].restart();
+                    return;
+                }
+                if (side.isOpen()) {
+                    java.awt.Point inSide = new java.awt.Point(mp);
+                    javax.swing.SwingUtilities.convertPointFromScreen(inSide, side);
+                    if (side.isShowing() && side.contains(inSide)) {
+                        hideRef[0].restart();
+                        return;
+                    }
                 }
             }
+            bar.setVisible(false);
+            setCursorVisible(frame, true);
+            hideRef[0].stop();
         });
         hideRef[0] = hideTimer;
+        window.hideTimer = hideTimer;
         hideTimer.setRepeats(false);
 
-        videoLayer.addMouseMotionListener(new MouseMotionAdapter() {
+        // 全局鼠标监听：装在 root 上，任何子组件上的移动都能收到。
+        // AWT 的事件会从子组件冒泡到父容器，所以 root 能捕获整个窗口的移动。
+        // 全局鼠标监听：装在 root 上，任何子组件上的移动都能收到。
+        // AWT 事件会从子组件冒泡到父容器，所以 root 能覆盖整个窗口。
+        root.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
                 if (!bar.isVisible()) {
                     bar.setVisible(true);
                     root.revalidate();
+                    root.repaint();
                 }
+                setCursorVisible(frame, true);
                 hideTimer.restart();
             }
         });
+        // 控件上也要监听，否则鼠标停在控制条上时计时器仍在跑
+        bar.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                hideTimer.restart();
+            }
+        });
+        // 视频区域的点击：单击播放/暂停，双击全屏
         videoLayer.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -413,7 +525,6 @@ final class VlcPlayer {
                     toggleFullScreen(frame);
                     return;
                 }
-                // 单击切换播放/暂停（成熟播放器通用行为）
                 player.controls().setPause(player.status().isPlaying());
                 osd.show(player.status().isPlaying() ? "▶  播放" : "⏸  暂停");
             }
@@ -439,7 +550,10 @@ final class VlcPlayer {
             }
             frame.setVisible(true);
             canvas.requestFocusInWindow();
-            // 启动时的隐藏计时
+            // 首帧强制布局一次，确保浮层位置正确（null 布局不会自动排）
+            root.validate();
+            root.repaint();
+            // 启动时给用户 3 秒看到控制条，然后自动隐藏
             hideTimer.start();
         });
 
@@ -471,7 +585,7 @@ final class VlcPlayer {
 
         bind(im, am, KeyEvent.VK_F, "fullscreen", () -> toggleFullScreen(frame));
 
-        bind(im, am, KeyEvent.VK_TAB, "sidePanel", () -> side.toggle(videoLayer.getWidth()));
+        bind(im, am, KeyEvent.VK_TAB, "sidePanel", () -> side.toggle());
 
         bind(im, am, KeyEvent.VK_UP, "volUp", () -> {
             int v = Math.min(130, player.audio().volume() + 5);
@@ -513,7 +627,7 @@ final class VlcPlayer {
             if (frame.isUndecorated()) {
                 toggleFullScreen(frame);
             } else if (side.isOpen()) {
-                side.toggle(videoLayer.getWidth());
+                side.toggle();
             } else {
                 window.release();
                 if (onExit != null) {
@@ -535,6 +649,25 @@ final class VlcPlayer {
                 }
             }
         });
+    }
+
+    /**
+     * 全屏时自动隐藏鼠标指针（仿成熟播放器：鼠标静止后指针消失，一动就出现）。
+     * 用透明光标实现，不需要改组件层级。
+     */
+    private static void setCursorVisible(JFrame frame, boolean visible) {
+        try {
+            if (visible) {
+                frame.setCursor(java.awt.Cursor.getDefaultCursor());
+            } else {
+                java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+                        16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                frame.setCursor(java.awt.Toolkit.getDefaultToolkit().createCustomCursor(
+                        img, new java.awt.Point(0, 0), "invisible"));
+            }
+        } catch (Throwable ignored) {
+            // 光标设置失败不影响播放
+        }
     }
 
     private static void toggleFullScreen(JFrame frame) {
@@ -627,9 +760,11 @@ final class VlcPlayer {
             add(sp, BorderLayout.CENTER);
 
             setActive(initial.slug);
-            // 默认隐藏（宽度 0），按 Tab 或到左边缘时滑出
-            setVisible(false);
-            open = false;
+            // 默认**展开**：用户反馈"侧边栏一播放就没有"，说明默认隐藏不合理。
+            // 成熟播放器（PotPlayer 播放列表、VLC 播放列表）默认都是可见的，
+            // 用户可以按 Tab 或点控制条的 ☰ 收起。
+            setVisible(true);
+            open = true;
         }
 
         private JPanel buildRow(int num, ChannelSpec spec) {
@@ -700,7 +835,8 @@ final class VlcPlayer {
             return open;
         }
 
-        void toggle(int videoWidth) {
+        /** 切换侧栏显示。实际位置与尺寸由外层 root 的 doLayout 负责。 */
+        void toggle() {
             open = !open;
             setVisible(open);
             revalidate();
@@ -733,35 +869,191 @@ final class VlcPlayer {
 
     // ------------------------------------------------------------------ 底部控制条
 
-    /** 底部控制条：播放/暂停、音量、换台栏、全屏、返回。 */
+    /**
+     * 底部控制条：播放/暂停、音量、换台栏、全屏、返回。
+     *
+     * <p>设计要点（对齐成熟播放器）：
+     * <ul>
+     *   <li>播放键图标随状态变化（▶ / ⏸），让用户一眼看出当前状态</li>
+     *   <li>音量有数值显示，调音量时不用猜</li>
+     *   <li>半透明深色底，压在视频上也不挡画面</li>
+     *   <li>按钮有 hover 反馈，明确"这里可以点"</li>
+     * </ul>
+     */
     static final class ControlBar extends JPanel {
         private final JLabel buffering = new JLabel("");
         private final JLabel channelName = new JLabel("");
+        private final JLabel volumeLabel = new JLabel();
+        private final javax.swing.JButton playBtn;
+        private final EmbeddedMediaPlayer player;
+        /** 记住最后有效音量（libVLC 起播前会返回 0）。 */
+        private int lastVolume = 100;
 
         ControlBar(EmbeddedMediaPlayer player, DesktopConfig config,
                    Runnable onToggleSide, Runnable onFullScreen, Runnable onExit) {
             super(new BorderLayout(10, 0));
-            setBackground(new Color(14, 19, 27));
+            this.player = player;
+            // 半透明深色底：压在视频上不刺眼，也不会挡太多画面
+            setOpaque(true);
+            setBackground(new Color(12, 16, 23, 235));
             setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(255, 255, 255, 26)),
+                    BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(255, 255, 255, 30)),
                     BorderFactory.createEmptyBorder(8, 14, 8, 14)));
 
-            JPanel left = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+            JPanel left = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 0));
             left.setOpaque(false);
 
-            left.add(flatButton("⏯", "播放 / 暂停 (空格)", () -> {
-                player.controls().setPause(player.status().isPlaying());
+            // 播放/暂停：用矢量图标自己画。
+            // 实测 ▶ / ⏸ / 🔇 这些字符在 Windows 默认字体下渲染不稳定
+            // （暂停变成两条细竖线、静音变成方块），自己画才能保证清晰。
+            playBtn = new javax.swing.JButton() {
+                @Override
+                protected void paintComponent(java.awt.Graphics g) {
+                    super.paintComponent(g);
+                    java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+                    g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                            java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(new Color(240, 244, 250));
+                    int w = getWidth();
+                    int h = getHeight();
+                    boolean playing;
+                    try {
+                        playing = player.status().isPlaying();
+                    } catch (Throwable t) {
+                        playing = false;
+                    }
+                    if (playing) {
+                        // 暂停：两个圆角竖条
+                        int barW = 5;
+                        int gap = 5;
+                        int barH = 15;
+                        int totalW = barW * 2 + gap;
+                        int x = (w - totalW) / 2;
+                        int y = (h - barH) / 2;
+                        g2.fillRoundRect(x, y, barW, barH, 2, 2);
+                        g2.fillRoundRect(x + barW + gap, y, barW, barH, 2, 2);
+                    } else {
+                        // 播放：实心三角形
+                        int size = 15;
+                        int x = (w - size) / 2 + 1;
+                        int y = (h - size) / 2;
+                        java.awt.geom.Path2D tri = new java.awt.geom.Path2D.Double();
+                        tri.moveTo(x, y);
+                        tri.lineTo(x, y + size);
+                        tri.lineTo(x + size - 2, y + size / 2.0);
+                        tri.closePath();
+                        g2.fill(tri);
+                    }
+                    g2.dispose();
+                }
+            };
+            styleFlatButton(playBtn, "播放 / 暂停 (空格)");
+            playBtn.setPreferredSize(new Dimension(40, 32));
+            playBtn.addActionListener(e -> {
+                try {
+                    player.controls().setPause(player.status().isPlaying());
+                    refreshPlayButton();
+                    playBtn.repaint();
+                } catch (Throwable ignored) {
+                    // 忽略
+                }
+            });
+            left.add(playBtn);
+
+            // 停止：实心方块
+            javax.swing.JButton stopBtn = new javax.swing.JButton() {
+                @Override
+                protected void paintComponent(java.awt.Graphics g) {
+                    super.paintComponent(g);
+                    java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+                    g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                            java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(new Color(240, 244, 250));
+                    int size = 12;
+                    g2.fillRoundRect((getWidth() - size) / 2, (getHeight() - size) / 2,
+                            size, size, 2, 2);
+                    g2.dispose();
+                }
+            };
+            styleFlatButton(stopBtn, "停止");
+            stopBtn.setPreferredSize(new Dimension(36, 32));
+            stopBtn.addActionListener(e -> {
+                try {
+                    player.controls().stop();
+                    refreshPlayButton();
+                    playBtn.repaint();
+                } catch (Throwable ignored) {
+                    // 忽略
+                }
+            });
+            left.add(stopBtn);
+
+            // 静音：喇叭 + 波纹 / 斜线
+            javax.swing.JButton muteBtn = new javax.swing.JButton() {
+                @Override
+                protected void paintComponent(java.awt.Graphics g) {
+                    super.paintComponent(g);
+                    java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+                    g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                            java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(new Color(230, 236, 244));
+                    int cx = getWidth() / 2;
+                    int cy = getHeight() / 2;
+                    boolean mute;
+                    try {
+                        mute = player.audio().isMute();
+                    } catch (Throwable t) {
+                        mute = false;
+                    }
+                    java.awt.geom.Path2D spk = new java.awt.geom.Path2D.Double();
+                    spk.moveTo(cx - 8, cy - 3);
+                    spk.lineTo(cx - 4, cy - 3);
+                    spk.lineTo(cx + 1, cy - 8);
+                    spk.lineTo(cx + 1, cy + 8);
+                    spk.lineTo(cx - 4, cy + 3);
+                    spk.lineTo(cx - 8, cy + 3);
+                    spk.closePath();
+                    g2.fill(spk);
+                    if (mute) {
+                        g2.setStroke(new java.awt.BasicStroke(2f));
+                        g2.setColor(new Color(230, 70, 80));
+                        g2.drawLine(cx - 9, cy - 9, cx + 9, cy + 9);
+                    } else {
+                        g2.setStroke(new java.awt.BasicStroke(1.6f));
+                        g2.drawArc(cx + 1, cy - 6, 8, 12, -60, 120);
+                    }
+                    g2.dispose();
+                }
+            };
+            styleFlatButton(muteBtn, "静音 (M)");
+            muteBtn.setPreferredSize(new Dimension(36, 32));
+            muteBtn.addActionListener(e -> {
+                try {
+                    player.audio().setMute(!player.audio().isMute());
+                    refreshVolume();
+                    muteBtn.repaint();
+                } catch (Throwable ignored) {
+                    // 忽略
+                }
+            });
+            left.add(muteBtn);
+
+            left.add(flatButton("−", "音量 -", () -> {
+                player.audio().setVolume(Math.max(0, player.audio().volume() - 5));
+                refreshVolume();
             }));
-            left.add(flatButton("🔇", "静音 (M)", () ->
-                    player.audio().setMute(!player.audio().isMute())));
-            left.add(flatButton("－", "音量 -", () ->
-                    player.audio().setVolume(Math.max(0, player.audio().volume() - 5))));
-            left.add(flatButton("＋", "音量 +", () ->
-                    player.audio().setVolume(Math.min(130, player.audio().volume() + 5))));
+            volumeLabel.setForeground(new Color(200, 212, 226));
+            volumeLabel.setFont(volumeLabel.getFont().deriveFont(12f));
+            volumeLabel.setPreferredSize(new Dimension(42, 18));
+            left.add(volumeLabel);
+            left.add(flatButton("＋", "音量 +", () -> {
+                player.audio().setVolume(Math.min(130, player.audio().volume() + 5));
+                refreshVolume();
+            }));
 
             channelName.setForeground(new Color(255, 255, 255));
             channelName.setFont(channelName.getFont().deriveFont(Font.BOLD, 14f));
-            channelName.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
+            channelName.setBorder(BorderFactory.createEmptyBorder(0, 14, 0, 0));
             left.add(channelName);
 
             buffering.setForeground(new Color(255, 200, 80));
@@ -769,7 +1061,7 @@ final class VlcPlayer {
             buffering.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
             left.add(buffering);
 
-            JPanel right = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+            JPanel right = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 8, 0));
             right.setOpaque(false);
             right.add(flatButton("☰", "频道列表 (Tab)", onToggleSide));
             right.add(flatButton("⛶", "全屏 (F / 双击)", onFullScreen));
@@ -777,6 +1069,53 @@ final class VlcPlayer {
 
             add(left, BorderLayout.WEST);
             add(right, BorderLayout.EAST);
+
+            refreshPlayButton();
+            refreshVolume();
+
+            // 定时刷新按钮图标，覆盖"用快捷键切换播放状态"的场景
+            Timer sync = new Timer(500, e -> {
+                refreshPlayButton();
+                if (isShowing()) {
+                    refreshVolume();
+                }
+            });
+            sync.setRepeats(true);
+            sync.start();
+        }
+
+        void refreshPlayButton() {
+            try {
+                boolean playing = player.status().isPlaying();
+                // 图标由 paintComponent 按当前状态绘制，不依赖文本；
+                // 这里只同步 tooltip 并触发重绘。
+                String tip = playing ? "暂停 (空格)" : "播放 (空格)";
+                if (!tip.equals(playBtn.getToolTipText())) {
+                    playBtn.setToolTipText(tip);
+                }
+                playBtn.repaint();
+            } catch (Throwable ignored) {
+                // 状态读取失败时保持原样
+            }
+        }
+
+        void refreshVolume() {
+            try {
+                int v = player.audio().volume();
+                boolean mute = player.audio().isMute();
+                // libVLC 在开始播放前 volume() 可能返回 0，
+                // 这时用记住的最后有效音量兜底，
+                // 避免界面显示 0% 误导用户。
+                if (v <= 0 && !mute) {
+                    v = lastVolume;
+                }
+                if (v > 0) {
+                    lastVolume = v;
+                }
+                volumeLabel.setText(mute ? "静音" : (v + "%"));
+            } catch (Throwable ignored) {
+                // 忽略
+            }
         }
 
         void setChannel(String name) {
@@ -785,6 +1124,36 @@ final class VlcPlayer {
 
         void setBuffering(float percent) {
             buffering.setText(percent < 0 ? "" : ("缓冲 " + (int) percent + "%"));
+        }
+
+        /** 控制条按钮的常色/悬停色（与半透明控制条底协调）。 */
+        private static final Color BTN_BG = new Color(12, 16, 23, 0);
+        private static final Color BTN_HOVER = new Color(58, 70, 90, 200);
+
+        /** 给无文字（矢量图标）的按钮套用与控制条一致的样式。 */
+        private static void styleFlatButton(javax.swing.JButton b, String tip) {
+            b.setToolTipText(tip);
+            b.setFocusPainted(false);
+            b.setBorderPainted(false);
+            b.setContentAreaFilled(false);
+            b.setOpaque(false);   // 关键：不透明按钮在 paintComponent 前置绘制会遮住自绘图标
+            b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            b.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+            b.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseEntered(MouseEvent e) {
+                    b.setOpaque(true);
+                    b.setBackground(BTN_HOVER);
+                    b.repaint();
+                }
+
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    b.setOpaque(false);
+                    b.setBackground(BTN_BG);
+                    b.repaint();
+                }
+            });
         }
 
         private static javax.swing.JButton flatButton(String text, String tip, Runnable action) {

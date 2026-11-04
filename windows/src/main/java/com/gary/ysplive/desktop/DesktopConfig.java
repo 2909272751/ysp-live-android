@@ -35,6 +35,18 @@ final class DesktopConfig {
     boolean fullScreenPlayer = false;
     /** 关闭主窗口时是否收进托盘继续后台播放。 */
     boolean closeToTray = true;
+    /**
+     * 开机自启开关。<b>默认关闭，且永远不会被程序自动打开。</b>
+     *
+     * <p>这个字段与注册表是"双保险"关系：
+     * <ul>
+     *   <li>注册表里是否有条目 —— 决定 Windows 实际会不会自启</li>
+     *   <li>这个字段 —— 决定用户本人在本程序的设置里是否同意过自启</li>
+     * </ul>
+     * 启动时会校验：若注册表有条目但本字段为 false（说明是旧版本或外部写入的），
+     * 则主动清掉该条目，避免用户"莫名其妙开机弹出来"。
+     */
+    boolean autoStartWithWindows = false;
     /** 播放器音量（0-130，libVLC 允许到 130%）。 */
     int playerVolume = 100;
     String lastChannel = "";
@@ -94,6 +106,7 @@ final class DesktopConfig {
         autoStartEngine = boolOf("app.autoStart", autoStartEngine);
         fullScreenPlayer = boolOf("player.fullscreen", fullScreenPlayer);
         closeToTray = boolOf("app.closeToTray", closeToTray);
+        autoStartWithWindows = boolOf("app.autoStartWithWindows", autoStartWithWindows);
         playerVolume = intOf("player.volume", playerVolume);
         lastChannel = props.getProperty("ui.lastChannel", lastChannel);
         filter = props.getProperty("ui.filter", filter);
@@ -122,6 +135,7 @@ final class DesktopConfig {
         props.setProperty("app.autoStart", String.valueOf(autoStartEngine));
         props.setProperty("player.fullscreen", String.valueOf(fullScreenPlayer));
         props.setProperty("app.closeToTray", String.valueOf(closeToTray));
+        props.setProperty("app.autoStartWithWindows", String.valueOf(autoStartWithWindows));
         props.setProperty("player.volume", String.valueOf(playerVolume));
         props.setProperty("ui.lastChannel", lastChannel == null ? "" : lastChannel);
         props.setProperty("ui.filter", filter == null ? "全部" : filter);

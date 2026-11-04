@@ -129,7 +129,8 @@ final class Dialogs {
         sb.append("日志文件：").append(LogFile.path() == null ? "未启用" : LogFile.path())
                 .append('\n');
         sb.append("渲染管线：").append(RenderQuality.describe()).append('\n');
-        sb.append("开机自启：").append(AutoStart.isEnabled() ? "已启用" : "未启用").append('\n');
+        sb.append("开机自启：").append(config.autoStartWithWindows ? "已启用" : "未启用（默认关闭）")
+                .append('\n');
         sb.append("系统托盘：").append(Tray.isSupported() ? "可用" : "不支持").append('\n');
         sb.append("Java：").append(System.getProperty("java.version"))
                 .append("  ").append(System.getProperty("java.vendor")).append('\n');
@@ -242,8 +243,11 @@ final class Dialogs {
         grid.add(fullScreenBox, 1, row++);
 
         grid.add(new Label("开机自动启动"), 0, row);
-        autoRunBox = new CheckBox("登录 Windows 后自动打开（写入 HKCU\\...\\Run）");
-        autoRunBox.setSelected(AutoStart.isEnabled());
+        // 默认关闭。复选框以「本程序的配置开关」为唯一事实源，
+        // 而不是直接读注册表——这样即使注册表被外部写入条目，
+        // 设置页也不会显示成"已开启"误导用户。
+        autoRunBox = new CheckBox("登录 Windows 后自动打开（默认关闭）");
+        autoRunBox.setSelected(config.autoStartWithWindows);
         grid.add(autoRunBox, 1, row++);
 
         grid.add(new Label("关闭窗口时"), 0, row);
@@ -291,13 +295,16 @@ final class Dialogs {
             config.fullScreenPlayer = fullScreenBox.isSelected();
             config.closeToTray = closeToTrayBox.isSelected();
 
-            // 开机自启直接写注册表（失败不阻塞保存其余设置）
+            // 开机自启：只有用户在这里勾选才会写注册表。
+            // 注册表与配置开关保持一致——任一方失败都要能看出来。
             boolean wantAutoRun = autoRunBox.isSelected();
-            if (wantAutoRun != AutoStart.isEnabled()) {
-                boolean ok = AutoStart.setEnabled(wantAutoRun);
-                if (!ok) {
-                    Log.w("dialogs", "开机自启设置失败");
-                }
+            boolean ok = AutoStart.setEnabled(wantAutoRun);
+            if (!ok) {
+                Log.w("dialogs", "开机自启设置失败（want=" + wantAutoRun + "）");
+                // 写失败就不要把配置改成"已开启"，避免两边不一致
+                config.autoStartWithWindows = AutoStart.isEnabled();
+            } else {
+                config.autoStartWithWindows = wantAutoRun;
             }
             config.save();
 

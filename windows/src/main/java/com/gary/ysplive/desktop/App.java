@@ -292,6 +292,22 @@ public final class App extends Application {
         tray = new Tray(this::showMainWindow, this::quitFromTray);
         trayInstalled = tray.install();
 
+        // 开机自启的启动期校验（默认关闭，且绝不被程序自动打开）。
+        //
+        // 场景：用户以前装过旧版并勾选过自启，注册表里留下了条目；或者别的
+        // 工具写入了同名项。这种情况下用户会觉得"它怎么自己开机弹出来"。
+        // 这里的规则很简单：以本程序的配置开关为准（默认 false），
+        // 配置说不要自启、但注册表有条目 -> 主动清掉，把控制权还给用户。
+        try {
+            boolean regHas = AutoStart.isEnabled();
+            if (regHas && !config.autoStartWithWindows) {
+                AutoStart.setEnabled(false);
+                Log.i(TAG, "检测到注册表残留自启项且配置未开启，已清除");
+            }
+        } catch (Throwable e) {
+            Log.w(TAG, "启动期自启校验失败（忽略）: " + e);
+        }
+
         loadChannelGrid();
         startEngineAndPlayerHost();
     }

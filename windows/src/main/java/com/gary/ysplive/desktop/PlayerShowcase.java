@@ -58,6 +58,9 @@ public final class PlayerShowcase {
 
         // 主动把控制条与侧边栏显示出来，再自截图 —— 不依赖外部模拟输入
         if (w.frame != null) {
+            w.pinControls();
+            Thread.sleep(400);
+            w.pinControls();
             SwingUtilities.invokeAndWait(() -> dumpAndSnapshot(w.frame, outPng, outTxt));
         }
 
@@ -89,24 +92,54 @@ public final class PlayerShowcase {
         sb.append("hasOsd=").append(all.contains("Osd")).append('\n');
         sb.append("hasCanvas=").append(all.contains("java.awt.Canvas")).append('\n');
 
-        // 把控制条设为可见并截图
+        // 把控制条/侧栏设为可见并截图。
+        // 注意：控制条有"静止 2.8 秒自动隐藏"的定时器，截图前必须重新显示，
+        // 否则拍到的是隐藏态（看起来像"没有控制条"）。
         forceVisible(frame.getContentPane());
         frame.validate();
         frame.repaint();
 
         if (outPng != null) {
             try {
-                // 等一帧渲染
-                Thread.sleep(600);
+                Thread.sleep(800);
+                // 再次强制显示（定时器可能又把它藏了）
+                forceVisible(frame.getContentPane());
+                frame.validate();
+                frame.doLayout();
+                Thread.sleep(300);
+
                 Rectangle r = frame.getContentPane().getBounds();
-                BufferedImage img = new BufferedImage(r.width, r.height, BufferedImage.TYPE_INT_RGB);
+                BufferedImage img = new BufferedImage(
+                        Math.max(1, r.width), Math.max(1, r.height),
+                        BufferedImage.TYPE_INT_RGB);
                 java.awt.Graphics2D g = img.createGraphics();
-                frame.getContentPane().paintAll(g);
+                g.setColor(java.awt.Color.BLACK);
+                g.fillRect(0, 0, r.width, r.height);
+                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+
+                // Swing 的 printAll/paintAll 在带 native peer 的窗口上不可靠
+                // （实测输出全黑）。改成自己递归：对每个可见组件做坐标平移后
+                // 调用它的 paint()，这样控制条、侧栏、按钮都会真实绘制出来。
+                paintTree(frame.getContentPane(), g);
                 g.dispose();
-                // 判断是否抓到了真实视频（视频是 native surface，paintAll 抓不到，
-                // 但 UI chrome 会画上去，足够验证控制条/侧栏）
                 javax.imageio.ImageIO.write(img, "png", new File(outPng));
                 sb.append("snapshotSaved=").append(outPng).append('\n');
+
+                // 统计非黑像素比例，判断是否真的画出了 UI
+                int nonBlack = 0;
+                for (int y = 0; y < img.getHeight(); y += 3) {
+                    for (int x = 0; x < img.getWidth(); x += 3) {
+                        int rgb = img.getRGB(x, y);
+                        if ((rgb & 0xFFFFFF) != 0) {
+                            nonBlack++;
+                        }
+                    }
+                }
+                int total = (img.getWidth() / 3 + 1) * (img.getHeight() / 3 + 1);
+                sb.append("nonBlackRatio=")
+                        .append(String.format(java.util.Locale.ROOT, "%.1f%%",
+                                100.0 * nonBlack / Math.max(1, total))).append('\n');
             } catch (Throwable t) {
                 sb.append("snapshotFailed=").append(t).append('\n');
             }
@@ -121,6 +154,34 @@ public final class PlayerShowcase {
                 // ignore
             }
         }
+    }
+
+    /**
+     * 递归绘制组件树。
+     * <p>Swing 的 printAll/paintAll 在带 native peer 的窗口上不可靠（实测全黑），
+     * 这里手动做坐标平移后调用每个组件的 paint()。
+     * Canvas 是 libVLC 的 native 视频表面，paint() 抓不到，直接跳过。
+     */
+    private static void paintTree(java.awt.Component c, java.awt.Graphics2D g) {
+        if (!c.isVisible() || c.getWidth() <= 0 || c.getHeight() <= 0) {
+            return;
+        }
+        if (c.getClass().getSimpleName().equals("Canvas")) {
+            return;
+        }
+        java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+        g2.translate(c.getX(), c.getY());
+        try {
+            c.paint(g2);
+        } catch (Throwable ignored) {
+            // 单个组件绘制失败不影响其它
+        }
+        if (c instanceof Container) {
+            for (Component child : ((Container) c).getComponents()) {
+                paintTree(child, g2);
+            }
+        }
+        g2.dispose();
     }
 
     /** 递归把控制条和侧栏设为可见（模拟"鼠标移入"的效果）。 */
