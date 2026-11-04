@@ -99,3 +99,7 @@ windows/probe/*.log
 _vlc/
 windows/probe/vlc-out/
 .github/RELEASE-BODY-WIN.md
+
+# 验证过程产物
+windows/verify-*.png
+windows/verify-*.txt
