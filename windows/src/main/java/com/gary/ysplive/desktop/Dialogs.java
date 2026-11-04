@@ -128,6 +128,7 @@ final class Dialogs {
         sb.append("配置目录：").append(DesktopConfig.dataDir()).append('\n');
         sb.append("日志文件：").append(LogFile.path() == null ? "未启用" : LogFile.path())
                 .append('\n');
+        sb.append("程序版本：").append(App.VERSION).append('\n');
         sb.append("渲染管线：").append(RenderQuality.describe()).append('\n');
         sb.append("开机自启：").append(config.autoStartWithWindows ? "已启用" : "未启用（默认关闭）")
                 .append('\n');
@@ -189,6 +190,7 @@ final class Dialogs {
     private CheckBox autoStartBox;
     private CheckBox fullScreenBox;
     private CheckBox autoRunBox;
+    private CheckBox autoHideBarBox;
     private CheckBox closeToTrayBox;
 
     void showSettings() {
@@ -242,6 +244,11 @@ final class Dialogs {
         fullScreenBox.setSelected(config.fullScreenPlayer);
         grid.add(fullScreenBox, 1, row++);
 
+        grid.add(new Label("播放时隐藏控制条"), 0, row);
+        autoHideBarBox = new CheckBox("鼠标静止约 3 秒后自动隐藏（默认关闭，建议保持关闭）");
+        autoHideBarBox.setSelected(config.playerAutoHideControls);
+        grid.add(autoHideBarBox, 1, row++);
+
         grid.add(new Label("开机自动启动"), 0, row);
         // 默认关闭。复选框以「本程序的配置开关」为唯一事实源，
         // 而不是直接读注册表——这样即使注册表被外部写入条目，
@@ -293,6 +300,7 @@ final class Dialogs {
             config.highBitrateMode = highBitrateBox.getValue();
             config.autoStartEngine = autoStartBox.isSelected();
             config.fullScreenPlayer = fullScreenBox.isSelected();
+            config.playerAutoHideControls = autoHideBarBox.isSelected();
             config.closeToTray = closeToTrayBox.isSelected();
 
             // 开机自启：只有用户在这里勾选才会写注册表。

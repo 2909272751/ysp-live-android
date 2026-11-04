@@ -90,6 +90,9 @@ final class VlcPlayer {
             this.factory = factory;
         }
 
+        /** 全局鼠标监听器，释放时必须注销，否则会泄漏并拖慢事件分发。 */
+        java.awt.event.AWTEventListener globalMouseListener;
+
         /** 供截图与自动化测试使用：停掉自动隐藏并强制显示控制条。 */
         void pinControls() {
             if (hideTimer != null) {
@@ -130,6 +133,19 @@ final class VlcPlayer {
                 factory.release();
             } catch (Throwable ignored) {
                 // 已释放
+            }
+            // 注销全局监听，避免窗口关闭后仍持有引用
+            if (globalMouseListener != null) {
+                try {
+                    java.awt.Toolkit.getDefaultToolkit()
+                            .removeAWTEventListener(globalMouseListener);
+                } catch (Throwable ignored) {
+                    // 忽略
+                }
+                globalMouseListener = null;
+            }
+            if (hideTimer != null) {
+                hideTimer.stop();
             }
             SwingUtilities.invokeLater(frame::dispose);
         }
@@ -213,7 +229,7 @@ final class VlcPlayer {
         final EmbeddedMediaPlayer player = factory.mediaPlayers().newEmbeddedMediaPlayer();
         player.audio().setVolume(Math.max(0, Math.min(130, config.playerVolume)));
 
-        final JFrame frame = new JFrame("央视频直播 · " + initial.name);
+        final JFrame frame = new JFrame("央视频直播 v" + App.VERSION + " · " + initial.name);
         frame.setUndecorated(false);
         frame.setBackground(Color.BLACK);
 
@@ -318,7 +334,7 @@ final class VlcPlayer {
             if (onSwitch != null) {
                 onSwitch.onSwitch(spec);
             }
-            frame.setTitle("央视频直播 · " + spec.name);
+            frame.setTitle("央视频直播 v" + App.VERSION + " · " + spec.name);
             if (sideRef[0] != null) {
                 sideRef[0].setActive(spec.slug);
             }
@@ -453,20 +469,29 @@ final class VlcPlayer {
         // 键盘快捷键：装在 root 上，避免焦点问题
         installKeyBindings(root, player, config, bar, side, videoLayer, window, frame, onExit, osd);
 
-        // ---------------- 控制条 / 侧栏的显隐（仿成熟播放器） ----------------
+        // ---------------- 控制条 / 侧栏的显隐 ----------------
         //
-        // 成熟播放器的行为（PotPlayer / VLC / mpv）：
-        //   · 鼠标一动就显示控制条
-        //   · 鼠标停在控制条/侧栏上时**不隐藏**（否则用户正要点就消失）
-        //   · 鼠标静止 N 秒且不在任何控件上 -> 隐藏
-        //   · 隐藏只是"不可见"，不参与布局，视频尺寸完全不变
+        // 重要教训（用户实测反馈"打开播放看不到暂停、换台列表"）：
+        //   libVLC 的视频表面是 java.awt.Canvas —— 一个**重量级（heavyweight）**
+        //   组件，带自己的 native peer。鼠标在它上面移动时，事件直接由 native
+        //   peer 接收，**不会冒泡到 Swing 父容器**。
+        //   所以把 mouseMoved 装在 root / videoLayer 上根本收不到，
+        //   控制条一旦自动隐藏就再也出不来。
         //
-        // 旧实现的两个错误：
-        //   1) 只在 videoLayer 上装 mouseMoved，鼠标移到控制条/侧栏上就收不到事件，
-        //      于是 3 秒后照样隐藏；
-        //   2) 控制条在 BorderLayout.SOUTH，隐藏会触发 relayout 让视频跳一下。
+        // 现在的策略：
+        //   1) 默认**不自动隐藏**（config.playerAutoHideControls = false）。
+        //      画面底部常驻控制条，用户任何时候都能看到暂停/停止/换台入口。
+        //   2) 用户可在设置里开启"自动隐藏"，开启后用**全局 AWT 事件监听**
+        //      （Toolkit.addAWTEventListener）捕获鼠标移动 —— 这个通道
+        //      不受重量级组件影响，能可靠地把控制条唤回来。
+        //   3) 另外在 Canvas 上直接装一份监听，双保险。
+        final boolean autoHide = config.playerAutoHideControls;
+
         final Timer[] hideRef = new Timer[1];
         final Timer hideTimer = new Timer(2800, e -> {
+            if (!autoHide) {
+                return;
+            }
             // 鼠标在控制条或侧栏范围内 -> 不隐藏
             java.awt.Point mp = java.awt.MouseInfo.getPointerInfo() == null
                     ? null : java.awt.MouseInfo.getPointerInfo().getLocation();
@@ -494,29 +519,72 @@ final class VlcPlayer {
         window.hideTimer = hideTimer;
         hideTimer.setRepeats(false);
 
-        // 全局鼠标监听：装在 root 上，任何子组件上的移动都能收到。
-        // AWT 的事件会从子组件冒泡到父容器，所以 root 能捕获整个窗口的移动。
-        // 全局鼠标监听：装在 root 上，任何子组件上的移动都能收到。
-        // AWT 事件会从子组件冒泡到父容器，所以 root 能覆盖整个窗口。
+        // 把控制条唤回来的统一动作（多处复用）
+        final Runnable showControls = () -> {
+            if (!bar.isVisible()) {
+                bar.setVisible(true);
+                root.revalidate();
+                root.repaint();
+            }
+            setCursorVisible(frame, true);
+            hideTimer.restart();
+        };
+
+        // 通道 1：Canvas 自己（重量级组件的 native peer 直接接收事件）
+        canvas.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                showControls.run();
+            }
+        });
+        // 通道 2：root 与控件（覆盖侧栏、控制条等轻量区域）
         root.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
-                if (!bar.isVisible()) {
-                    bar.setVisible(true);
-                    root.revalidate();
-                    root.repaint();
-                }
-                setCursorVisible(frame, true);
-                hideTimer.restart();
+                showControls.run();
             }
         });
-        // 控件上也要监听，否则鼠标停在控制条上时计时器仍在跑
         bar.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
-                hideTimer.restart();
+                showControls.run();
             }
         });
+        side.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                showControls.run();
+            }
+        });
+
+        // 通道 3（关键）：全局 AWT 事件监听。
+        // 上面两条通道在鼠标压到重量级 Canvas 上时都可能收不到，
+        // 这个通道监听整个应用的事件队列，不受轻重组件影响，是兜底手段。
+        final java.awt.event.AWTEventListener globalMouse =
+                event -> {
+                    if (!(event instanceof MouseEvent)) {
+                        return;
+                    }
+                    MouseEvent me = (MouseEvent) event;
+                    if (me.getID() != MouseEvent.MOUSE_MOVED
+                            && me.getID() != MouseEvent.MOUSE_DRAGGED) {
+                        return;
+                    }
+                    // 只关心发生在播放窗口内的移动
+                    java.awt.Component src = me.getComponent();
+                    if (src == null || !javax.swing.SwingUtilities
+                            .isDescendingFrom(src, frame)) {
+                        return;
+                    }
+                    javax.swing.SwingUtilities.invokeLater(showControls);
+                };
+        try {
+            java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(
+                    globalMouse, java.awt.AWTEvent.MOUSE_MOTION_EVENT_MASK);
+            window.globalMouseListener = globalMouse;
+        } catch (Throwable e) {
+            Log.w(TAG, "注册全局鼠标监听失败（不影响其它唤出方式）: " + e);
+        }
         // 视频区域的点击：单击播放/暂停，双击全屏
         videoLayer.addMouseListener(new MouseAdapter() {
             @Override
@@ -553,8 +621,15 @@ final class VlcPlayer {
             // 首帧强制布局一次，确保浮层位置正确（null 布局不会自动排）
             root.validate();
             root.repaint();
-            // 启动时给用户 3 秒看到控制条，然后自动隐藏
-            hideTimer.start();
+            // 只有用户显式开启「自动隐藏」时才启动计时器。
+            // 默认常驻显示，保证任何时候都能找到暂停/停止/换台入口。
+            if (autoHide) {
+                hideTimer.start();
+            } else {
+                bar.setVisible(true);
+                root.validate();
+                root.repaint();
+            }
         });
 
         Thread.sleep(350);

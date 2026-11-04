@@ -1,7 +1,11 @@
 # Full verification of the performance/interaction build.
 # ASCII only.
 
-$setup = 'C:\1\ysp-android\windows\release\YspLive-Setup-9.5.3.exe'
+# 自动取 release 目录里最新的安装包，避免版本号变更后测试失效
+$setup = Get-ChildItem 'C:\1\ysp-android\windows\release\YspLive-Setup-*.exe' |
+         Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+if (-not $setup) { Write-Host "NO SETUP FOUND"; exit 1 }
+Write-Host "setup = $setup"
 $installDir = "$env:LOCALAPPDATA\Programs\YspLive"
 $env:JAVA_HOME = 'C:\re-toolkit\jdk'
 $failed = $false

@@ -33,6 +33,16 @@ final class DesktopConfig {
     String highBitrateMode = "all";     // all | only4k | off
     boolean autoStartEngine = true;
     boolean fullScreenPlayer = false;
+    /**
+     * 播放时是否自动隐藏控制条。
+     *
+     * <p><b>默认 false（常驻显示）</b>。原因：libVLC 的视频表面是重量级
+     * AWT Canvas，鼠标在其上的移动事件不会冒泡到 Swing 父容器，
+     * 早期版本"自动隐藏"后控制条再也唤不回来，用户完全找不到暂停/换台入口。
+     * 宁可少一点沉浸感，也不能让用户点不到按钮。
+     * 想要沉浸观看的用户可在设置里打开，或按 F 全屏。
+     */
+    boolean playerAutoHideControls = false;
     /** 关闭主窗口时是否收进托盘继续后台播放。 */
     boolean closeToTray = true;
     /**
@@ -105,6 +115,7 @@ final class DesktopConfig {
         highBitrateMode = props.getProperty("engine.highBitrate", highBitrateMode);
         autoStartEngine = boolOf("app.autoStart", autoStartEngine);
         fullScreenPlayer = boolOf("player.fullscreen", fullScreenPlayer);
+        playerAutoHideControls = boolOf("player.autoHide", playerAutoHideControls);
         closeToTray = boolOf("app.closeToTray", closeToTray);
         autoStartWithWindows = boolOf("app.autoStartWithWindows", autoStartWithWindows);
         playerVolume = intOf("player.volume", playerVolume);
@@ -134,6 +145,7 @@ final class DesktopConfig {
         props.setProperty("engine.highBitrate", highBitrateMode == null ? "all" : highBitrateMode);
         props.setProperty("app.autoStart", String.valueOf(autoStartEngine));
         props.setProperty("player.fullscreen", String.valueOf(fullScreenPlayer));
+        props.setProperty("player.autoHide", String.valueOf(playerAutoHideControls));
         props.setProperty("app.closeToTray", String.valueOf(closeToTray));
         props.setProperty("app.autoStartWithWindows", String.valueOf(autoStartWithWindows));
         props.setProperty("player.volume", String.valueOf(playerVolume));
