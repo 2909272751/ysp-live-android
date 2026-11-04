@@ -94,6 +94,25 @@
             android:textSize="13sp" />
     </LinearLayout>
 
+    <!-- ================= 搜索框（64 个频道靠滚动找台太慢） ================= -->
+    <EditText
+        android:id="@+id/search_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/bg_search"
+        android:hint="搜索频道"
+        android:imeOptions="actionSearch"
+        android:inputType="text"
+        android:maxLines="1"
+        android:paddingLeft="14dp"
+        android:paddingRight="14dp"
+        android:paddingTop="9dp"
+        android:paddingBottom="9dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary"
+        android:textSize="13sp" />
+
     <!-- ================= 过滤 chip + 继续观看 ================= -->
     <LinearLayout
         android:layout_width="match_parent"

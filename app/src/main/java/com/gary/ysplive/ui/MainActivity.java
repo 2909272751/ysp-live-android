@@ -11,6 +11,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.EditText;
 import android.widget.GridView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -47,6 +48,8 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
     private GridView grid;
     private ChannelAdapter adapter;
     private LinearLayout filterRow;
+    /** 频道搜索框（输入即时过滤）。 */
+    private EditText searchInput;
     private TextView statusDot;
     private TextView statusText;
     private TextView statusAction;
@@ -77,6 +80,27 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
 
         grid = (GridView) findViewById(R.id.channel_grid);
         filterRow = (LinearLayout) findViewById(R.id.filter_row);
+
+        // 搜索框：输入即时过滤（不按回车）
+        searchInput = (EditText) findViewById(R.id.search_input);
+        if (searchInput != null) {
+            searchInput.addTextChangedListener(new android.text.TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+                    // 无需处理
+                }
+
+                @Override
+                public void onTextChanged(CharSequence s, int a, int b, int c) {
+                    // 无需处理
+                }
+
+                @Override
+                public void afterTextChanged(android.text.Editable s) {
+                    reloadChannels();
+                }
+            });
+        }
         statusDot = (TextView) findViewById(R.id.status_dot);
         statusText = (TextView) findViewById(R.id.status_text);
         statusAction = (TextView) findViewById(R.id.status_action);
@@ -286,6 +310,24 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
             all = new ArrayList<>();
         }
         List<ChannelSpec> filtered = filter(all, currentFilter);
+
+        // 搜索过滤：匹配频道名 / slug / 分组，大小写不敏感。
+        // 与筛选 chip 是「与」关系——先按 chip 分组，再按关键词收窄。
+        String kw = searchInput == null || searchInput.getText() == null
+                ? "" : searchInput.getText().toString().trim().toLowerCase();
+        if (!kw.isEmpty()) {
+            List<ChannelSpec> hit = new ArrayList<>();
+            for (ChannelSpec s : filtered) {
+                String name = s.name == null ? "" : s.name.toLowerCase();
+                String slug = s.slug == null ? "" : s.slug.toLowerCase();
+                String group = s.group == null ? "" : s.group.toLowerCase();
+                if (name.contains(kw) || slug.contains(kw) || group.contains(kw)) {
+                    hit.add(s);
+                }
+            }
+            filtered = hit;
+        }
+
         adapter.setItems(filtered);
 
         boolean empty = filtered.isEmpty();
