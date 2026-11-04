@@ -44,10 +44,16 @@ final class VirtualChannelGrid {
 
     private static final double HGAP = 12;
     private static final double VGAP = 12;
+    /** 网格左右内边距之和（14 + 18，与 canvas 的 padding 保持一致）。 */
+    private static final double H_PADDING = 32;
 
     /** 实际使用的卡片尺寸（软件渲染时更小，减少单帧光栅化面积）。 */
     private final double cardW = RenderQuality.cardWidth();
     private final double cardH = RenderQuality.cardHeight();
+    /** 实测的卡片高度；0 表示还没测到。用于校正滚动内容总高度。 */
+    private volatile double measuredCardH;
+    /** 当前采用的卡片宽度（会按视口宽度自适应铺满）。 */
+    private double actualCardW = RenderQuality.cardWidth();
 
     private final ScrollPane scroll;
     private final FlowPane canvas;
@@ -90,13 +96,21 @@ final class VirtualChannelGrid {
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         scroll.getStyleClass().add("grid-scroll");
 
-        // 视口尺寸变化时重算列数
+        // 视口尺寸变化时重算列数与卡片宽度。
+        // 按"能放几列就放几列，然后把剩余宽度均分给卡片"的方式，
+        // 保证卡片横向铺满、右侧不留大片空白（用户反馈过这个观感问题）。
         scroll.viewportBoundsProperty().addListener((o, a, b) -> {
             if (b != null && b.getWidth() > 0) {
                 int cols = Math.max(1,
-                        (int) ((b.getWidth() - 36 + HGAP) / (cardW + HGAP)));
-                if (cols != columns) {
-                    columns = cols;
+                        (int) ((b.getWidth() - H_PADDING + HGAP) / (cardW + HGAP)));
+                double fill = (b.getWidth() - H_PADDING - (cols - 1) * HGAP) / cols;
+                // 限制放大倍数，避免超宽屏上卡片被拉得过分宽
+                fill = Math.max(cardW, Math.min(fill, cardW * 1.35));
+                boolean colsChanged = cols != columns;
+                boolean widthChanged = Math.abs(fill - actualCardW) > 0.5;
+                columns = cols;
+                actualCardW = fill;
+                if (colsChanged || widthChanged) {
                     rebuild();
                 } else {
                     refresh();
@@ -129,13 +143,47 @@ final class VirtualChannelGrid {
         realized.clear();
         canvas.getChildren().clear();
         rowsTotal = (int) Math.ceil(all.size() / (double) columns);
-        // 用一块透明占位撑出完整滚动高度
-        double h = rowsTotal * (cardH + VGAP) + 28;
-        canvas.setMinHeight(h);
-        canvas.setPrefHeight(h);
+        applyContentHeight();
         lastFirstRow = -1;
         lastLastRow = -1;
         refresh();
+    }
+
+    /**
+     * 撑出完整的滚动高度。
+     *
+     * <p>用**实测的卡片高度**而不是估算值。之前用 RenderQuality 里的估算高度
+     * （软件渲染 134px）算总高度，而真实卡片比它矮，导致内容高度虚高、
+     * 滚动条能拖到所有卡片下方一大片空白——用户反馈"滚动可以超过最下面"。
+     * 现在一旦测到真实高度就按真实值算，并重新校正一次。
+     */
+    private void applyContentHeight() {
+        double rowH = (measuredCardH > 0 ? measuredCardH : cardH) + VGAP;
+        // 加上 canvas 自身的内边距（上下各一份）
+        double pad = canvas.getPadding().getTop() + canvas.getPadding().getBottom();
+        double h = Math.max(1, rowsTotal * rowH - VGAP + pad);
+        canvas.setMinHeight(h);
+        canvas.setPrefHeight(h);
+    }
+
+    /** 首次实体化后测一次卡片真实高度，并据此校正内容高度。 */
+    private void measureCardIfNeeded(Region sample) {
+        if (measuredCardH > 0 || sample == null) {
+            return;
+        }
+        try {
+            double h = sample.prefHeight(-1);
+            if (h > 60 && h < 400) {
+                measuredCardH = h;
+                Log.i(TAG, "实测卡片高度 = " + String.format(java.util.Locale.ROOT, "%.1f", h)
+                        + "（估算 " + cardH + "）");
+                applyContentHeight();
+                lastFirstRow = -1;
+                lastLastRow = -1;
+            }
+        } catch (Throwable ignored) {
+            // 测量失败就继续用估算值
+        }
     }
 
     /** 按当前滚动位置实体化可见行。 */
@@ -147,12 +195,13 @@ final class VirtualChannelGrid {
         if (viewportH <= 0) {
             return;
         }
+        double rowH = (measuredCardH > 0 ? measuredCardH : cardH) + VGAP;
         double contentH = canvas.getPrefHeight();
         double maxScroll = Math.max(1, contentH - viewportH);
         double topPx = scroll.getVvalue() * maxScroll;
 
-        int firstRow = (int) Math.floor(topPx / (cardH + VGAP)) - OVERSCAN_ROWS;
-        int lastRow = (int) Math.ceil((topPx + viewportH) / (cardH + VGAP)) + OVERSCAN_ROWS;
+        int firstRow = (int) Math.floor(topPx / rowH) - OVERSCAN_ROWS;
+        int lastRow = (int) Math.ceil((topPx + viewportH) / rowH) + OVERSCAN_ROWS;
         firstRow = Math.max(0, firstRow);
         lastRow = Math.min(rowsTotal - 1, lastRow);
 
@@ -197,11 +246,22 @@ final class VirtualChannelGrid {
                 }
                 realized.put(i, card);
             }
+            // 按当前视口自适应卡片宽度，让整行铺满可用宽度
+            if (card instanceof javafx.scene.layout.Region) {
+                javafx.scene.layout.Region r = (javafx.scene.layout.Region) card;
+                r.setPrefWidth(actualCardW);
+                r.setMaxWidth(actualCardW);
+                r.setMinWidth(actualCardW);
+            }
             ordered.add(card);
         }
         // 只在顺序不一致时才整体替换，减少节点增删次数
         if (!canvas.getChildren().equals(ordered)) {
             canvas.getChildren().setAll(ordered);
+        }
+        // 首次拿到卡片后测一次真实高度，校正滚动内容总高度
+        if (measuredCardH <= 0 && !ordered.isEmpty()) {
+            measureCardIfNeeded((Region) ordered.get(0));
         }
         Log.i(TAG, "实体化行 " + firstRow + ".." + lastRow
                 + " 共 " + canvas.getChildren().size() + " 张卡片");
@@ -228,7 +288,8 @@ final class VirtualChannelGrid {
         double contentH = canvas.getPrefHeight();
         double viewportH = scroll.getViewportBounds().getHeight();
         double maxScroll = Math.max(1, contentH - viewportH);
-        double target = Math.min(1.0, (row * (cardH + VGAP)) / maxScroll);
+        double rowH2 = (measuredCardH > 0 ? measuredCardH : cardH) + VGAP;
+        double target = Math.min(1.0, (row * rowH2) / maxScroll);
         scroll.setVvalue(target);
     }
 }

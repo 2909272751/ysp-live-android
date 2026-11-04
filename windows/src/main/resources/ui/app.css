@@ -112,6 +112,19 @@
     -fx-background-color: #E02B3A;
 }
 
+/* 退出按钮：平时低饱和避免误点，悬停变红提示这是"真正退出" */
+.btn-exit {
+    -fx-background-color: #2a1a1e;
+    -fx-text-fill: #ff8f9a;
+    -fx-border-color: rgba(230, 70, 90, 0.35);
+}
+
+.btn-exit:hover {
+    -fx-background-color: #b01624;
+    -fx-text-fill: #ffffff;
+    -fx-border-color: rgba(255, 150, 160, 0.6);
+}
+
 /* ==================== 筛选 chip ==================== */
 
 .chip {

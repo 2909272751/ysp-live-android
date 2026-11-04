@@ -33,10 +33,55 @@ final class Tray {
     private TrayIcon icon;
     private final Runnable onOpen;
     private final Runnable onExit;
+    /** 停止播放并回到选台（托盘菜单用）。 */
+    private final Runnable onStopPlayback;
 
-    Tray(Runnable onOpen, Runnable onExit) {
+    Tray(Runnable onOpen, Runnable onExit, Runnable onStopPlayback) {
         this.onOpen = onOpen;
         this.onExit = onExit;
+        this.onStopPlayback = onStopPlayback;
+    }
+
+    Tray(Runnable onOpen, Runnable onExit) {
+        this(onOpen, onExit, onOpen);
+    }
+
+    /**
+     * 挑一个能显示中文的字体。
+     * <p>AWT 菜单项默认字体在部分 Windows 上不含 CJK 字形，
+     * 会导致菜单文字变成方框。这里按优先级探测，并用
+     * {@link java.awt.Font#canDisplayUpTo} 实际验证能否画出中文。
+     */
+    private static java.awt.Font pickCjkFont() {
+        String probe = "打开选台界面退出程序停止播放";
+        String[] candidates = {
+                "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑",
+                "SimSun", "宋体", "SimHei", "黑体",
+                "Dialog", java.awt.Font.DIALOG,
+        };
+        for (String name : candidates) {
+            try {
+                java.awt.Font f = new java.awt.Font(name, java.awt.Font.PLAIN, 12);
+                if (f.canDisplayUpTo(probe) < 0) {
+                    Log.i(TAG, "托盘菜单字体 = " + name);
+                    return f;
+                }
+            } catch (Throwable ignored) {
+                // 尝试下一个
+            }
+        }
+        Log.w(TAG, "没有找到可显示中文的字体，托盘菜单可能显示为方框");
+        return null;
+    }
+
+    private static void applyFont(MenuItem item, java.awt.Font font) {
+        if (item != null && font != null) {
+            try {
+                item.setFont(font);
+            } catch (Throwable ignored) {
+                // 部分平台不支持
+            }
+        }
     }
 
     /** 是否支持系统托盘（极少数精简版 Windows 不支持）。 */
@@ -64,17 +109,31 @@ final class Tray {
             Image img = loadIcon();
             PopupMenu menu = new PopupMenu();
 
+            // 关键：AWT 的 PopupMenu/MenuItem 默认字体在部分 Windows 上
+            // 渲染不了中文，菜单项会显示成一排方框（用户实测反馈"右键有奇怪的东西"）。
+            // 必须显式挑一个能显示中文的字体，并用 canDisplayUpTo 验证。
+            java.awt.Font cjk = pickCjkFont();
+
             MenuItem open = new MenuItem("打开选台界面");
+            applyFont(open, cjk);
             open.addActionListener(e -> fire(onOpen));
             menu.add(open);
 
+            MenuItem stopPlay = new MenuItem("停止播放并回到选台");
+            applyFont(stopPlay, cjk);
+            stopPlay.addActionListener(e -> fire(onStopPlayback));
+            menu.add(stopPlay);
+
             menu.addSeparator();
 
-            MenuItem exit = new MenuItem("退出");
+            MenuItem exit = new MenuItem("退出程序");
+            applyFont(exit, cjk);
             exit.addActionListener(e -> fire(onExit));
             menu.add(exit);
 
             icon = new TrayIcon(img, "央视频直播", menu);
+            // 注意：TrayIcon 没有 setFont —— 气泡通知的字体由系统决定，
+            // 只有 PopupMenu 里的 MenuItem 才能单独设字体。
             icon.setImageAutoSize(true);
             // 双击托盘图标 = 打开主界面
             ActionListener dbl = e -> {

@@ -69,7 +69,7 @@ public final class App extends Application {
      * 之前排查"看不到控制条"时无法确认用户装的是哪一版，浪费了很多时间。
      * 现在标题栏、诊断页都会显示这个版本号，一眼可辨。
      */
-    static final String VERSION = "9.5.7";
+    static final String VERSION = "9.5.9";
     private static final String[] FILTERS = {"全部", "央视", "卫视", "4K", "收藏"};
 
     private Stage stage;
@@ -103,6 +103,8 @@ public final class App extends Application {
     private volatile boolean exiting;
     /** 托盘是否安装成功（失败时关闭窗口即退出，避免程序变幽灵）。 */
     private volatile boolean trayInstalled;
+    /** 防止 shutdown() 被重复执行（托盘退出 + 关窗可能同时触发）。 */
+    private volatile boolean shutdownDone;
 
     /** 当前正在播放的频道（用于卡片高亮）。 */
     private volatile String playingSlug = "";
@@ -110,6 +112,13 @@ public final class App extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.stage = primaryStage;
+        // 关键：默认 JavaFX 在"最后一个窗口隐藏"时会自动退出。
+        // 我们的主窗口会被收进托盘（hide 而非 close），且播放器是独立的
+        // Swing 窗口。若允许隐式退出，JavaFX 会先死掉而 Swing 还活着，
+        // 进程就变成没人管、也退不掉的僵尸。
+        // 关掉隐式退出，何时退出完全由 shutdown() 决定。
+        Platform.setImplicitExit(false);
+
         // 日志先起来，这样单实例判定的结果能落盘（否则日志里查不到原因）。
         LogFile.start();
 
@@ -295,7 +304,7 @@ public final class App extends Application {
         }
 
         // 系统托盘：关闭窗口后继续后台播放，双击托盘图标快速呼出
-        tray = new Tray(this::showMainWindow, this::quitFromTray);
+        tray = new Tray(this::showMainWindow, this::quitFromTray, this::stopPlaybackFromTray);
         trayInstalled = tray.install();
 
         // 开机自启的启动期校验（默认关闭，且绝不被程序自动打开）。
@@ -345,11 +354,21 @@ public final class App extends Application {
         Button refreshBtn = new Button("重载列表");
         refreshBtn.setOnAction(e -> loadChannelGrid());
 
+        // 明确的退出入口。窗口右上角的 ✕ 是「收进托盘」，
+        // 用户需要一个一眼能看到的真正退出按钮，否则会觉得"退不出后台"。
+        Button exitBtn = new Button("退出");
+        exitBtn.getStyleClass().add("btn-exit");
+        exitBtn.setTooltip(new Tooltip("完全退出程序（结束后台进程）"));
+        exitBtn.setOnAction(e -> {
+            Log.i(TAG, "用户点「退出」按钮");
+            shutdown();
+        });
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         HBox row = new HBox(10, title, subtitle, spacer, statusBox,
-                refreshBtn, logsBtn, settingsBtn, diagBtn);
+                refreshBtn, logsBtn, settingsBtn, diagBtn, exitBtn);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(14, 18, 10, 18));
         row.getStyleClass().add("header");
@@ -900,6 +919,20 @@ public final class App extends Application {
         shutdown();
     }
 
+    /** 托盘菜单「停止播放并回到选台」：关掉播放器窗口，显示主界面。 */
+    private void stopPlaybackFromTray() {
+        Log.i(TAG, "用户从托盘停止播放");
+        if (vlcWindow != null) {
+            vlcWindow.release();
+            vlcWindow = null;
+        }
+        if (playerSession != null) {
+            playerSession.close();
+            playerSession = null;
+        }
+        showMainWindow();
+    }
+
     // ------------------------------------------------------------------ 对话框
 
     private Dialogs dialogs() {
@@ -922,8 +955,15 @@ public final class App extends Application {
     // ------------------------------------------------------------------ 生命周期
 
     private void shutdown() {
+        if (shutdownDone) {
+            return;
+        }
         exiting = true;
-        config.save();
+        try {
+            config.save();
+        } catch (Throwable ignored) {
+            // 继续清理
+        }
         if (tray != null) {
             tray.remove();
             tray = null;
@@ -940,13 +980,36 @@ public final class App extends Application {
             webServer.stop();
             webServer = null;
         }
-        engine.stop();
+        try {
+            engine.stop();
+        } catch (Throwable ignored) {
+            // 继续
+        }
         if (logoPool != null) {
             logoPool.shutdownNow();
         }
         LogFile.flush();
         SingleInstance.release();
-        Platform.exit();
+        shutdownDone = true;
+        try {
+            Platform.exit();
+        } catch (Throwable ignored) {
+            // 继续强杀
+        }
+        // ★ 关键修复：Platform.exit() 只结束 JavaFX，**结束不了 Swing/AWT 线程**
+        // （播放器窗口是 Swing 的）。所以必须短延时后强制终止进程，
+        // 否则用户会遇到"点退出、关窗口都退不掉，任务管理器里还挂着"。
+        Thread killer = new Thread(() -> {
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            Log.i(TAG, "强制退出进程");
+            Runtime.getRuntime().halt(0);
+        }, "force-exit");
+        killer.setDaemon(true);
+        killer.start();
     }
 
     /** 仅供 PerfBench 调用：切换筛选并立即同步布局，用于测量真实开销。 */

@@ -231,9 +231,16 @@ final class VlcPlayer {
                 "--quiet",
                 "--no-osd",
                 "--no-snapshot-preview",
-                "--avcodec-hw=dxva2");
+                "--avcodec-hw=dxva2",
+                // 显式给出音频输出模块优先级。默认 libVLC 会自己挑，
+                // 但在某些精简版 Windows / 多声卡机器上会挑错甚至挑不到，
+                // 表现为「有画面没声音」。这三项覆盖了 Windows 上可用的全部
+                // 音频后端（mmdevice=WASAPI 首选，directsound、waveout 兜底）。
+                "--aout=mmdevice,directsound,waveout");
 
         final EmbeddedMediaPlayer player = factory.mediaPlayers().newEmbeddedMediaPlayer();
+        // 注意：这里的 setVolume 只是"先记下"，真正生效要在 playing 之后，
+        // 见 applyAudioSettings()。
         player.audio().setVolume(Math.max(0, Math.min(130, config.playerVolume)));
 
         final JFrame frame = new JFrame("央视频直播 v" + App.VERSION + " · " + initial.name);
@@ -251,73 +258,30 @@ final class VlcPlayer {
 
         // ---------------- 界面组装 ----------------
         //
-        // 布局原则（仿 PotPlayer / VLC / mpv）：
-        //   · 视频始终铺满整个窗口，不因控制条/侧栏的显隐而改变尺寸
-        //   · 控制条与侧栏是**浮在视频上的覆盖层**，不是布局的一部分
+        // ★ 关键约束：libVLC 的视频表面是 java.awt.Canvas —— **重量级组件**。
+        // AWT 里重量级组件永远绘制在轻量级 Swing 组件**之上**，与 z-order 无关。
+        // 所以「控制条/侧栏浮在视频上层」在 AWT 下不可能实现：
+        // 之前用 null 布局把侧栏和控制条叠在 Canvas 上，结果它们全被视频盖住，
+        // 用户看到的就是「只有画面，没有任何控件和换台入口」。
         //
-        // 之前的实现把控制条放在 BorderLayout.SOUTH、侧栏放在 WEST，
-        // 一隐藏就会触发整个窗口 relayout 并让视频区跳一下；而且鼠标移到
-        // 控制条/侧栏上时收不到 mouseMoved（监听只装在视频层），
-        // 于是"3 秒自动隐藏"在用户正要点击时反而把控件藏了——
-        // 这就是"鼠标放上去不像成熟播放器有播放键"的直接原因。
-        // 用字段保存覆盖层引用，供 doLayout 使用。
-        // 不能直接捕获后面才声明的局部变量（Java 的前向引用限制）。
-        final JComponent[] sideHolder = new JComponent[1];
-        final JComponent[] barHolder = new JComponent[1];
-
-        final JPanel root = new JPanel(null) {
-            @Override
-            public void doLayout() {
-                int w = getWidth();
-                int h = getHeight();
-                // 索引 0 是视频层（最先加入），铺满整个窗口
-                if (getComponentCount() > 0) {
-                    getComponent(0).setBounds(0, 0, w, h);
-                }
-
-                JComponent sideComp = sideHolder[0];
-                JComponent barComp = barHolder[0];
-
-                // 控制条浮在底部，横跨整个宽度
-                int barH = 0;
-                if (barComp != null) {
-                    barH = Math.max(46, barComp.getPreferredSize().height);
-                    barComp.setBounds(0, h - barH, w, barH);
-                }
-
-                // 侧栏浮在左侧，底部让出控制条的高度
-                if (sideComp != null) {
-                    boolean isOpen = !(sideComp instanceof SidePanel)
-                            || ((SidePanel) sideComp).isOpen();
-                    sideComp.setBounds(0, 0, isOpen ? 280 : 0, Math.max(0, h - barH));
-                }
-            }
-        };
+        // 唯一正确的做法：让它们**互不重叠**，用 BorderLayout 停靠。
+        // 这也是 VLC / PotPlayer 播放列表的实际做法（停靠面板，不是覆盖层）。
+        final JPanel root = new JPanel(new BorderLayout(0, 0));
         root.setBackground(Color.BLACK);
+        root.setOpaque(true);
 
-        // 视频区（画布 + OSD 叠加）
+        // 视频区（画布）
         final Osd osd = new Osd();
 
-        final JPanel videoLayer;
-        videoLayer = new JPanel(null) {
-            @Override
-            public void doLayout() {
-                canvas.setBounds(0, 0, getWidth(), getHeight());
-                // OSD 放在视频区域的垂直居中位置，
-                // 并避开底部控制条（否则会压住控制条上的文字）
-                if (osd.getParent() == this) {
-                    Dimension d = osd.getPreferredSize();
-                    int safeH = Math.max(1, getHeight() - 56);
-                    osd.setBounds((getWidth() - d.width) / 2,
-                            Math.max(0, (safeH - d.height) / 2), d.width, d.height);
-                }
-            }
-        };
+        // 视频区：用 BorderLayout 让 Canvas 占满中心，
+        // AWT 自己管理尺寸，比 null 布局更可靠。
+        final JPanel videoLayer = new JPanel(new BorderLayout());
         videoLayer.setBackground(Color.BLACK);
-        videoLayer.add(canvas);
+        videoLayer.add(canvas, BorderLayout.CENTER);
 
-        videoLayer.add(osd);
-        osd.setVisible(false);
+        // 注意：OSD 是独立的 JWindow（重量级），不能放在 videoLayer 里，
+        // 否则会被 Canvas 盖住（同为轻量级/重量级混用的老问题）。
+        osd.attachTo(frame);
 
         // ---------------- 断流自动恢复的状态 ----------------
         // 提前声明：换台逻辑（侧边栏 lambda）与事件回调都要用到。
@@ -395,14 +359,12 @@ final class VlcPlayer {
                     }
                 });
 
-        // 注册到 holder，供 root.doLayout 定位
-        sideHolder[0] = side;
-        barHolder[0] = bar;
-
-        // 覆盖层顺序：视频在最底，侧栏其次，控制条最上（后加的在上层）
-        root.add(videoLayer);
-        root.add(side);
-        root.add(bar);
+        // 停靠布局：侧栏在左、控制条在下、视频占中间，三者互不重叠。
+        // 这是 AWT 下唯一能保证控件可见的排布方式（Canvas 是重量级，
+        // 任何叠在它上面的轻量组件都会被覆盖）。
+        root.add(side, BorderLayout.WEST);
+        root.add(videoLayer, BorderLayout.CENTER);
+        root.add(bar, BorderLayout.SOUTH);
 
         frame.setContentPane(root);
 
@@ -415,6 +377,11 @@ final class VlcPlayer {
                 recovering.set(false);
                 Log.i(TAG, "开始播放: " + initial.name);
                 SwingUtilities.invokeLater(() -> bar.setBuffering(-1));
+                // ★ 音频初始化必须放在"真正开始播放"之后。
+                // libVLC 在 play() 之前调用 setVolume() 时，音频输出（aout）
+                // 还没建立，音量/静音设置会被丢弃，表现为"有画面没声音"。
+                // 这里在 playing 事件里再强制设置一次，并显式取消静音。
+                applyAudioSettings(player, config, bar);
             }
 
             @Override
@@ -843,6 +810,54 @@ final class VlcPlayer {
         return false;
     }
 
+    /**
+     * 应用音频设置（音量 + 取消静音）。
+     *
+     * <p>必须在 {@code playing} 事件之后调用：libVLC 在媒体真正开始播放前
+     * 音频输出（aout）尚未建立，此时 {@code setVolume()} 会被丢弃，
+     * 用户看到的就是「有画面、音量显示正常、但没有声音」。
+     * 这是 libVLC 集成的经典坑，不是本项目的独创问题。
+     */
+    private static void applyAudioSettings(EmbeddedMediaPlayer player,
+                                           DesktopConfig config, ControlBar bar) {
+        final int want = config == null ? 100 : Math.max(0, Math.min(130, config.playerVolume));
+        // 在后台线程里重试，不能阻塞 VLC 回调线程。
+        Thread t = new Thread(() -> {
+            for (int i = 0; i < 40; i++) {
+                try {
+                    player.audio().setMute(false);
+                    player.audio().setVolume(want);
+                    Thread.sleep(400);
+                    int now = player.audio().volume();
+                    int tracks = player.audio().trackCount();
+                    if (i == 0 || now >= 0) {
+                        Log.i(TAG, "音频初始化尝试 " + (i + 1)
+                                + ": 目标=" + want + " 实际=" + now
+                                + " 静音=" + player.audio().isMute()
+                                + " 音轨数=" + tracks);
+                    }
+                    // 音量已生效且存在音轨 -> 完成
+                    if (now > 0 && tracks > 0) {
+                        if (bar != null) {
+                            SwingUtilities.invokeLater(bar::refreshVolume);
+                        }
+                        return;
+                    }
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (Throwable e) {
+                    Log.w(TAG, "音频初始化异常: " + e);
+                    return;
+                }
+            }
+            Log.w(TAG, "音频初始化未成功（音轨数或音量仍为 0/-1），"
+                    + "可能是流本身无音频或缺少 AAC 解码器");
+        }, "audio-init");
+        t.setDaemon(true);
+        t.start();
+    }
+
     private static void setCursorVisible(JFrame frame, boolean visible) {
         try {
             if (visible) {
@@ -858,19 +873,48 @@ final class VlcPlayer {
         }
     }
 
+    /**
+     * 记录进全屏前的普通窗口尺寸，退出全屏时恢复。
+     */
+    private static volatile java.awt.Rectangle lastNormalBounds;
+
+    /**
+     * 切换全屏。
+     *
+     * <p><b>注意：这里绝对不能 dispose()。</b>
+     * AWT 的 {@code dispose()} 会触发 {@code windowClosed}，而 windowClosed 里
+     * 会 release() 整个播放器（停止播放、释放 libVLC）。之前用
+     * dispose + setUndecorated 实现全屏，结果按 F 或双击会把播放器直接杀掉，
+     * 窗口重新显示出来也是死的。
+     * 现在只切窗口状态，不销毁窗口。
+     */
     private static void toggleFullScreen(JFrame frame) {
         SwingUtilities.invokeLater(() -> {
-            boolean wasUndecorated = frame.isUndecorated();
-            frame.dispose();
-            frame.setUndecorated(!wasUndecorated);
-            if (!wasUndecorated) {
-                frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-            } else {
-                frame.setExtendedState(JFrame.NORMAL);
-                frame.setSize(1280, 760);
-                frame.setLocationRelativeTo(null);
+            try {
+                boolean wasFull = (frame.getExtendedState() & JFrame.MAXIMIZED_BOTH) != 0;
+                if (!wasFull) {
+                    java.awt.Rectangle b = frame.getBounds();
+                    if (b.width > 320 && b.height > 240) {
+                        lastNormalBounds = b;
+                    }
+                    frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                } else {
+                    frame.setExtendedState(JFrame.NORMAL);
+                    if (lastNormalBounds != null) {
+                        frame.setBounds(lastNormalBounds);
+                    } else {
+                        frame.setSize(1280, 760);
+                        frame.setLocationRelativeTo(null);
+                    }
+                }
+                frame.validate();
+                java.awt.Container cp = frame.getContentPane();
+                cp.doLayout();
+                cp.validate();
+                cp.repaint();
+            } catch (Throwable t) {
+                Log.w(TAG, "全屏切换失败: " + t);
             }
-            frame.setVisible(true);
         });
     }
 
@@ -880,6 +924,9 @@ final class VlcPlayer {
     static final class Osd extends JPanel {
         private final JLabel label = new JLabel("", JLabel.CENTER);
         private final Timer hide;
+        /** OSD 用独立 JWindow 承载：重量级窗口才能显示在 Canvas 之上。 */
+        private JWindow window;
+        private JFrame parent;
 
         Osd() {
             super(new BorderLayout());
@@ -889,16 +936,54 @@ final class VlcPlayer {
             label.setForeground(Color.WHITE);
             label.setFont(label.getFont().deriveFont(Font.BOLD, 20f));
             add(label, BorderLayout.CENTER);
-            hide = new Timer(1400, e -> setVisible(false));
+            hide = new Timer(1400, e -> {
+                if (window != null) {
+                    window.setVisible(false);
+                }
+            });
             hide.setRepeats(false);
+        }
+
+        /**
+         * 绑定到主窗口。
+         * <p>OSD 必须是**独立的重量级窗口**（JWindow），
+         * 否则会被 libVLC 的 Canvas 盖住 —— 与侧栏/控制条同一个根因。
+         */
+        void attachTo(JFrame frame) {
+            this.parent = frame;
+            window = new JWindow(frame);
+            window.setBackground(new Color(0, 0, 0, 0));
+            window.getContentPane().add(this);
+            window.setFocusableWindowState(false);
+            window.setAlwaysOnTop(false);
+            window.setVisible(false);
         }
 
         void show(String text) {
             label.setText(text);
-            setVisible(true);
-            setPreferredSize(null);
-            revalidate();
+            if (window == null || parent == null) {
+                return;
+            }
+            try {
+                window.pack();
+                java.awt.Dimension d = window.getSize();
+                java.awt.Point p = parent.getLocationOnScreen();
+                int cx = p.x + (parent.getWidth() - d.width) / 2;
+                int cy = p.y + (parent.getHeight() - d.height) / 2 - 40;
+                window.setLocation(Math.max(0, cx), Math.max(0, cy));
+                window.setVisible(true);
+                window.toFront();
+            } catch (Throwable t) {
+                Log.w(TAG, "OSD 显示失败: " + t);
+            }
             hide.restart();
+        }
+
+        void dispose() {
+            if (window != null) {
+                window.dispose();
+                window = null;
+            }
         }
     }
 
