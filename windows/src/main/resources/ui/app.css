@@ -138,6 +138,24 @@
     -fx-border-color: rgba(255, 150, 160, 0.6);
 }
 
+/* 搜索框：与 chip 同高的胶囊形状，融进筛选栏。 */
+.search-field {
+    -fx-background-color: #1c2330;
+    -fx-text-fill: #F0F4FA;
+    -fx-prompt-text-fill: #7E8B9C;
+    -fx-background-radius: 17;
+    -fx-border-color: rgba(255, 255, 255, 0.10);
+    -fx-border-radius: 17;
+    -fx-border-width: 1;
+    -fx-padding: 7 14 7 14;
+    -fx-font-size: 12px;
+}
+
+.search-field:focused {
+    -fx-border-color: #C21C2B;
+    -fx-background-color: #232c3b;
+}
+
 /* ==================== 频道网格 ====================
    性能警告：这里绝对不能用 transparent。
    实测（CssRuleProbe）：给滚动区域设 transparent 后帧率从 34 掉到 16.8，

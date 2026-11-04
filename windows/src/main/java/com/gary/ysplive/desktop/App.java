@@ -72,6 +72,8 @@ public final class App extends Application {
     private LocalWebServer webServer;
 
     private VirtualChannelGrid virtualGrid;
+    /** 频道搜索框（输入即时过滤）。 */
+    private javafx.scene.control.TextField searchField;
     private Label statusLabel;
     private Label detailLabel;
     private Button continueButton;
@@ -203,6 +205,27 @@ public final class App extends Application {
         primaryStage.setScene(scene);
         primaryStage.setMinWidth(880);
         primaryStage.setMinHeight(600);
+
+        // 全局快捷键
+        // Ctrl+F 聚焦搜索；Ctrl+R 重载列表；F5 同 Ctrl+R。
+        try {
+            scene.getAccelerators().put(
+                    javafx.scene.input.KeyCombination.keyCombination("Shortcut+F"),
+                    () -> {
+                        if (searchField != null) {
+                            searchField.requestFocus();
+                            searchField.selectAll();
+                        }
+                    });
+            scene.getAccelerators().put(
+                    javafx.scene.input.KeyCombination.keyCombination("Shortcut+R"),
+                    this::loadChannelGrid);
+            scene.getAccelerators().put(
+                    javafx.scene.input.KeyCombination.keyCombination("F5"),
+                    this::loadChannelGrid);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "注册快捷键失败: " + e);
+        }
         // 关闭窗口 = 收进托盘继续后台播放（商用软件常见做法）。
         // 真要退出走托盘右键「退出」。若系统不支持托盘，则关闭即退出。
         primaryStage.setOnCloseRequest(e -> {
@@ -341,7 +364,22 @@ public final class App extends Application {
         }
         Region chipSpacer = new Region();
         HBox.setHgrow(chipSpacer, Priority.ALWAYS);
-        chips.getChildren().addAll(chipSpacer, continueButton);
+
+        // 搜索框：64 个频道靠滚动找台太慢，这是商用客户端的基本能力。
+        // 输入即时过滤（不按回车），清空即恢复当前筛选。
+        searchField = new javafx.scene.control.TextField();
+        searchField.setPromptText("搜索频道（Ctrl+F）");
+        searchField.setPrefWidth(200);
+        searchField.getStyleClass().add("search-field");
+        searchField.textProperty().addListener((o, a, b) -> applyFilter());
+        // Esc 清空搜索
+        searchField.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) {
+                searchField.clear();
+            }
+        });
+
+        chips.getChildren().addAll(chipSpacer, searchField, continueButton);
 
         VBox top = new VBox(row, chips);
         top.getStyleClass().add("top");
@@ -378,6 +416,24 @@ public final class App extends Application {
             return;
         }
         List<ChannelSpec> visible = config.filteredChannels();
+
+        // 搜索过滤：匹配频道名 / slug / 分组，大小写不敏感。
+        // 与筛选 chip 是"与"关系——先按 chip 分组，再按关键词收窄。
+        String kw = searchField == null || searchField.getText() == null
+                ? "" : searchField.getText().trim().toLowerCase(java.util.Locale.ROOT);
+        if (!kw.isEmpty()) {
+            List<ChannelSpec> hit = new ArrayList<>();
+            for (ChannelSpec s : visible) {
+                String name = s.name == null ? "" : s.name.toLowerCase(java.util.Locale.ROOT);
+                String slug = s.slug == null ? "" : s.slug.toLowerCase(java.util.Locale.ROOT);
+                String group = s.group == null ? "" : s.group.toLowerCase(java.util.Locale.ROOT);
+                if (name.contains(kw) || slug.contains(kw) || group.contains(kw)) {
+                    hit.add(s);
+                }
+            }
+            visible = hit;
+        }
+
         virtualGrid.setItems(visible, this::buildChannelCard);
 
         ChannelSpec last = ChannelTable.bySlug(config.lastChannel);

@@ -231,9 +231,26 @@ final class VlcPlayer {
         videoLayer.add(osd);
         osd.setVisible(false);
 
+        // ---------------- 断流自动恢复的状态 ----------------
+        // 提前声明：换台逻辑（侧边栏 lambda）与事件回调都要用到。
+        //
+        // 为什么要做重连：之前的实现只在 OSD 上写「正在重试…」但没有真的重试，
+        // 网络抖动一次就永久黑屏——这是商用播放器不能接受的行为。
+        // 这里按 1s/2s/4s/8s 退避重连，成功则复位计数，连续失败 5 次才提示用户。
+        final java.util.concurrent.atomic.AtomicInteger retryCount =
+                new java.util.concurrent.atomic.AtomicInteger(0);
+        final java.util.concurrent.atomic.AtomicReference<String> currentMrl =
+                new java.util.concurrent.atomic.AtomicReference<>(mrl);
+        final java.util.concurrent.atomic.AtomicBoolean recovering =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
         // 侧边换台栏
         // 用数组持有自身引用，避免 lambda 里引用"尚未初始化"的局部变量
         final SidePanel[] sideRef = new SidePanel[1];
+        // 换台需要知道播放器与流地址前缀，这里用数组在稍后赋值，
+        // 因为 SidePanel 构造时 player 已存在但 currentMrl 在后面才声明。
+        final java.util.concurrent.atomic.AtomicReference<String> switchPrefixRef =
+                new java.util.concurrent.atomic.AtomicReference<>("");
         final SidePanel side = new SidePanel(channels, initial, spec -> {
             if (onSwitch != null) {
                 onSwitch.onSwitch(spec);
@@ -242,9 +259,28 @@ final class VlcPlayer {
             if (sideRef[0] != null) {
                 sideRef[0].setActive(spec.slug);
             }
+            // 真正切流：之前的实现只改了标题和选中态，视频根本没换。
+            String prefix = switchPrefixRef.get();
+            if (!prefix.isEmpty()) {
+                String newMrl = prefix + "/" + spec.slug + ".m3u8";
+                Log.i(TAG, "换台 -> " + spec.name + " : " + newMrl);
+                currentMrl.set(newMrl);
+                // 换台时重置重连计数，避免沿用上个频道的失败次数
+                retryCount.set(0);
+                player.media().play(newMrl);
+            }
             osd.show("换台  " + spec.name);
         });
         sideRef[0] = side;
+        // 从初始流地址推导前缀（形如 http://127.0.0.1:8767）
+        try {
+            int cut = mrl.lastIndexOf('/');
+            if (cut > 0) {
+                switchPrefixRef.set(mrl.substring(0, cut));
+            }
+        } catch (RuntimeException ignored) {
+            // 推导失败则换台只更新界面（降级但不崩）
+        }
 
         // 底部控制条
         final ControlBar bar = new ControlBar(player, config,
@@ -272,13 +308,65 @@ final class VlcPlayer {
         player.events().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
             @Override
             public void playing(MediaPlayer mp) {
+                retryCount.set(0);
+                recovering.set(false);
                 Log.i(TAG, "开始播放: " + initial.name);
+                SwingUtilities.invokeLater(() -> bar.setBuffering(-1));
             }
 
             @Override
             public void error(MediaPlayer mp) {
                 Log.w(TAG, "播放出错");
-                SwingUtilities.invokeLater(() -> osd.show("播放出错，正在重试…"));
+                scheduleReconnect();
+            }
+
+            @Override
+            public void finished(MediaPlayer mp) {
+                // 直播流不应"结束"，出现说明上游断开，同样重连
+                Log.w(TAG, "播放意外结束，准备重连");
+                scheduleReconnect();
+            }
+
+            /** 退避重连。用单独线程 sleep，避免占用 VLC 回调线程。 */
+            private void scheduleReconnect() {
+                if (!recovering.compareAndSet(false, true)) {
+                    return;   // 已有重连在排队，避免叠加
+                }
+                final int attempt = retryCount.incrementAndGet();
+                SwingUtilities.invokeLater(() -> {
+                    osd.show(attempt <= 4 ? "连接中断，正在重连 (" + attempt + "/5)…"
+                            : "重连失败，请按 Esc 返回后重试");
+                    bar.setBuffering(-1);
+                });
+                Thread t = new Thread(() -> {
+                    try {
+                        // 1s, 2s, 4s, 8s, 8s
+                        long delayMs = Math.min(8000L, 1000L << Math.min(3, attempt - 1));
+                        Thread.sleep(delayMs);
+                        if (attempt > 5) {
+                            Log.w(TAG, "重连次数超限，停止");
+                            recovering.set(false);
+                            return;
+                        }
+                        Log.i(TAG, "第 " + attempt + " 次重连: " + currentMrl.get());
+                        player.media().play(currentMrl.get());
+                    } catch (Throwable e) {
+                        Log.w(TAG, "重连异常: " + e);
+                    } finally {
+                        // 留出时间让 playing/error 回调更新状态
+                        try {
+                            Thread.sleep(3000);
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
+                        if (player.status().isPlaying()) {
+                            retryCount.set(0);
+                        }
+                        recovering.set(false);
+                    }
+                }, "vlc-reconnect");
+                t.setDaemon(true);
+                t.start();
             }
 
             @Override
