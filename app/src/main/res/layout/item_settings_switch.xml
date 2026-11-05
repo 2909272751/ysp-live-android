@@ -18,7 +18,7 @@
     android:layout_height="wrap_content"
     android:background="@drawable/bg_row"
     android:clickable="true"
-    android:focusable="false"
+    android:focusable="true"
     android:gravity="center_vertical"
     android:minHeight="56dp"
     android:orientation="horizontal"
@@ -58,6 +58,8 @@
         android:id="@+id/row_switch"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginLeft="12dp" />
+        android:layout_marginLeft="12dp"
+        android:focusable="false"
+        android:clickable="false" />
 
 </LinearLayout>

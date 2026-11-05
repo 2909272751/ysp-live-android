@@ -1036,17 +1036,15 @@ public final class PlayerActivity extends Activity
             case KeyEvent.KEYCODE_DPAD_DOWN:
             case KeyEvent.KEYCODE_CHANNEL_DOWN:
             case KeyEvent.KEYCODE_MEDIA_NEXT:
-                if (overlayFocused) {
-                    return super.onKeyDown(keyCode, event);
-                }
+                // 上下键**始终**换台，控制条打开时也一样。
+                // 之前 overlayFocused 时把上下键交还给系统做按钮焦点导航，
+                // 结果是「呼出控制条后就换不了台」，用户必须先把控制条收起来，
+                // 连续换台几乎不可能。控制条内部用左右键移动焦点即可。
                 zap(1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
             case KeyEvent.KEYCODE_CHANNEL_UP:
             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
-                if (overlayFocused) {
-                    return super.onKeyDown(keyCode, event);
-                }
                 zap(-1);
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:

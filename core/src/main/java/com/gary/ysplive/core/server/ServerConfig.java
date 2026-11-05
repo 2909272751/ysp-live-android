@@ -26,7 +26,7 @@ public final class ServerConfig {
     /** 单设备高码率并发上限；0 = 关闭主动轮换。 */
     public int linksPerDevice = 6;
     /** 换台防抖秒数；0 = 关闭。 */
-    public double zapDebounceSec = 10.0;
+    public double zapDebounceSec = 0.6;
     /** {@code --no-4k}：完全禁用设备协议，全部走 1080p。 */
     public boolean disableHighBitrate = false;
     /** {@code --only-4k}：只有真 4K/8K 频道走设备协议。 */

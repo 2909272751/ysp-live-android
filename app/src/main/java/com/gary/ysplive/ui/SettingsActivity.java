@@ -84,6 +84,59 @@ public final class SettingsActivity extends Activity {
         buildRows();
     }
 
+    // ------------------------------------------------------------------
+    // 遥控器上下键路由
+    //
+    // 真机（Konka Android TV）实测：顶栏按钮拿到焦点后按 ▼，焦点**不会**
+    // 进入下方设置列表 —— 和主界面频道网格是同一个问题，不同厂商 ROM 的
+    // FocusFinder 对纵向搜索支持不一致。这里自己接管上下键，行为确定。
+    // ------------------------------------------------------------------
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        View focused = getCurrentFocus();
+        if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                && focused != null && isHeaderControl(focused)) {
+            View first = findFirstRow();
+            if (first != null) {
+                first.requestFocus();
+                return true;
+            }
+        }
+        if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
+                && focused != null && isFirstRow(focused)) {
+            View b = findViewById(R.id.btn_logs);
+            if (b != null) {
+                b.requestFocus();
+                return true;
+            }
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private boolean isHeaderControl(View v) {
+        int id = v.getId();
+        return id == R.id.btn_logs || id == R.id.btn_close;
+    }
+
+    /** 列表里第一个可聚焦的行（跳过只读行和分组标题）。 */
+    private View findFirstRow() {
+        if (container == null) {
+            return null;
+        }
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View child = container.getChildAt(i);
+            if (child != null && child.isFocusable()
+                    && child.getVisibility() == View.VISIBLE) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private boolean isFirstRow(View v) {
+        return v == findFirstRow();
+    }
+
     // ---------------- 构建界面 ----------------
 
     private void buildRows() {

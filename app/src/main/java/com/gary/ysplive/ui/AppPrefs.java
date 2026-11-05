@@ -39,7 +39,7 @@ public final class AppPrefs {
     public static final int DEFAULT_PORT = 8767;
     public static final int DEFAULT_CACHE_MB = 200;
     public static final int DEFAULT_LINKS = 6;
-    public static final double DEFAULT_ZAP_SEC = 10.0;
+    public static final double DEFAULT_ZAP_SEC = 0.6;
 
     private static AppPrefs instance;
 

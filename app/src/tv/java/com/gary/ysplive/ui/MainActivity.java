@@ -76,6 +76,8 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
     private TextView statusText;
     private TextView emptyText;
     private LinearLayout chipRow;
+    /** 顶栏的「日志 / 设置」按钮容器。 */
+    private LinearLayout headerButtons;
     private GridView grid;
     private GridViewAdapter adapter;
 
@@ -137,6 +139,11 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
         // 关键：去掉系统默认的焦点高亮，改用卡片自己的焦点态
         grid.setSelector(new ColorDrawable(Color.TRANSPARENT));
         grid.setDrawSelectorOnTop(false);
+        // ★ 必须让**子项**拿焦点，而不是 GridView 自己。
+        // 默认 FOCUS_BEFORE_DESCENDANTS 会让 GridView 先吃掉焦点；
+        // 而我们已经把 selector 设成透明，结果就是「按方向键毫无反应、
+        // 看不到任何焦点」——真机上实测复现过，正是用户说的『遥控器选不中』。
+        grid.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         adapter = new GridViewAdapter();
         grid.setAdapter(adapter);
         grid.setOnItemClickListener(new AdapterView.OnItemClickListener() {
@@ -203,7 +210,53 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
         statusText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         statusText.setGravity(Gravity.END);
         row.addView(statusText);
+
+        // 设置 / 日志入口。
+        // 之前的电视版界面上完全没有这两个功能 —— 用户根本进不去设置，
+        // 属于功能性缺口，不只是美观问题。
+        headerButtons = new LinearLayout(this);
+        headerButtons.setOrientation(LinearLayout.HORIZONTAL);
+        headerButtons.addView(buildHeaderButton("日志", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, LogsActivity.class));
+            }
+        }));
+        headerButtons.addView(buildHeaderButton("设置", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+            }
+        }));
+        row.addView(headerButtons);
         return row;
+    }
+
+    /** 顶栏按钮：可聚焦 + 焦点可见，触摸也能点。 */
+    private View buildHeaderButton(String label, final View.OnClickListener click) {
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        b.setTextColor(C_TEXT);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(20), dp(9), dp(20), dp(9));
+        b.setFocusable(true);
+        b.setFocusableInTouchMode(false);
+        b.setClickable(true);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(12);
+        b.setLayoutParams(lp);
+        b.setBackground(chipBackground(false));
+        b.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                v.setBackground(chipBackground(hasFocus));
+                animateFocus(v, hasFocus, 1.08f);
+            }
+        });
+        b.setOnClickListener(click);
+        return b;
     }
 
     private View buildChipBar() {
@@ -260,11 +313,10 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
                 filter = label;
                 applyFilter();
                 refreshChipStyles();
-                // 选完分类直接把焦点送进网格，省一次向下按
-                if (!shown.isEmpty()) {
-                    grid.requestFocus();
-                    grid.setSelection(0);
-                }
+                // 选完分类直接把焦点送进网格，省一次向下按。
+                // 必须用 focusFirstCard()：直接 grid.requestFocus() 在真机上不生效，
+                // 焦点会掉回「全部」，用户以为分类没选中。
+                focusFirstCard();
             }
         });
         return chip;
@@ -394,16 +446,98 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        View focused = getCurrentFocus();
+
         // 返回键：在分类栏焦点时先回到「全部」，否则交给系统退出
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            View f = getCurrentFocus();
-            if (f != null && f.getParent() == chipRow && !F_ALL.equals(filter)) {
+            if (focused != null && focused.getParent() == chipRow
+                    && !F_ALL.equals(filter)) {
                 filter = F_ALL;
                 applyFilter();
                 return true;
             }
         }
+
+        // ★ 显式做上下切换，不依赖系统的 FocusFinder。
+        // 真机实测：分类栏拿到焦点后按 ▼，焦点**不会**进入下方 GridView
+        // （不同厂商 ROM 对 GridView 的焦点搜索行为不一致，Konka 这台就完全不动）。
+        // 与其猜各家实现，不如自己接管这两个方向键，行为确定且可测。
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                && focused != null && focused.getParent() == chipRow) {
+            focusFirstCard();
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP
+                && focused != null && isInsideGrid(focused)) {
+            // 已经在第一行时再按上，回到分类栏
+            int sel = grid.getSelectedItemPosition();
+            if (sel < getColumnCount()) {
+                focusChip(filter);
+                return true;
+            }
+        }
         return super.onKeyDown(keyCode, event);
+    }
+
+    /** 把焦点交给频道网格里的第一张卡片。 */
+    private void focusFirstCard() {
+        if (shown.isEmpty()) {
+            return;
+        }
+        // 先让它选中第 0 项并请求焦点，再在下一帧兜底直接给子项发焦点
+        // （GridView 的子项是懒创建的，首次可能还没实体化）。
+        grid.setSelection(0);
+        grid.requestFocus();
+        grid.post(new Runnable() {
+            @Override
+            public void run() {
+                View target = grid.getChildAt(0);
+                if (target == null && grid.getChildCount() == 0) {
+                    return;
+                }
+                if (target == null) {
+                    target = grid.getChildAt(0);
+                }
+                if (target != null && !target.hasFocus()) {
+                    target.requestFocus();
+                }
+            }
+        });
+    }
+
+    /** 把焦点还给指定分类的 chip。 */
+    private void focusChip(String label) {
+        for (int i = 0; i < chipRow.getChildCount(); i++) {
+            View c = chipRow.getChildAt(i);
+            if (c instanceof TextView
+                    && label.contentEquals(((TextView) c).getText())) {
+                c.requestFocus();
+                return;
+            }
+        }
+        if (chipRow.getChildCount() > 0) {
+            chipRow.getChildAt(0).requestFocus();
+        }
+    }
+
+    /** 当前网格列数（用于判断是否在第一行）。 */
+    private int getColumnCount() {
+        int cols = grid.getNumColumns();
+        return cols < 1 ? 1 : cols;
+    }
+
+    private boolean isInsideGrid(View v) {
+        View p = v;
+        while (p != null) {
+            if (p == grid) {
+                return true;
+            }
+            if (!(p.getParent() instanceof View)) {
+                return false;
+            }
+            p = (View) p.getParent();
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ 网格适配器
@@ -481,6 +615,34 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
                     animateFocus(v, hasFocus, 1.07f);
                 }
             });
+
+            // ★ 确认键必须落在**卡片自己**身上。
+            // 遥控器把焦点给了卡片之后，按确认键走的是 View.performClick()，
+            // 不会再冒泡到 GridView 的 onItemClick —— 真机上实测过：
+            // 焦点在卡片上按确认没有任何反应，就是因为这里没绑监听。
+            setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (spec != null) {
+                        openPlayer(spec);
+                    }
+                }
+            });
+            // 长按 = 收藏（同样要绑在卡片上，否则收不到）
+            setOnLongClickListener(new OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View v) {
+                    if (spec == null) {
+                        return false;
+                    }
+                    boolean added = AppPrefs.get(MainActivity.this)
+                            .toggleFavorite(spec.slug);
+                    Ui.toast(MainActivity.this,
+                            (added ? "已收藏 " : "已取消收藏 ") + spec.name);
+                    applyFilter();
+                    return true;
+                }
+            });
         }
 
         void bind(ChannelSpec s) {
@@ -506,7 +668,7 @@ public final class MainActivity extends Activity implements EngineBus.Observer {
         GradientDrawable d = new GradientDrawable();
         d.setColor(focused ? C_CARD_FOCUS : C_CARD);
         d.setCornerRadius(dp(14));
-        d.setStroke(focused ? dp(3) : dp(1), focused ? C_FOCUS_RING : 0xFF222C3A);
+        d.setStroke(focused ? dp(4) : dp(1), focused ? C_FOCUS_RING : 0xFF222C3A);
         return d;
     }
 
