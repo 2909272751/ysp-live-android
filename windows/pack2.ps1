@@ -14,7 +14,7 @@ Copy-Item $jar "$inputDir\YspLive-Desktop.jar"
 $jpArgs = @(
     '--type', 'app-image',
     '--name', 'YspLive',
-    '--app-version', '9.6.2',
+    '--app-version', '9.6.3',
     '--input', $inputDir,
     '--main-jar', 'YspLive-Desktop.jar',
     '--main-class', 'com.gary.ysplive.desktop.Launcher',
